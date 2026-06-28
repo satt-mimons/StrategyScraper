@@ -1,0 +1,144 @@
+import { callLLM } from "@/lib/anthropic";
+import type { BrandOverrides, CostTracker, Profile } from "@/types";
+
+const BRAND_PALETTE: Record<string, { primary: string; accent: string }> = {
+  google: { primary: "#4285F4", accent: "#EA4335" },
+  servicenow: { primary: "#81B5A1", accent: "#293E40" },
+  microsoft: { primary: "#0078D4", accent: "#FFB900" },
+  apple: { primary: "#1D1D1F", accent: "#0066CC" },
+  meta: { primary: "#0866FF", accent: "#A259FF" },
+  amazon: { primary: "#FF9900", accent: "#232F3E" },
+  salesforce: { primary: "#00A1E0", accent: "#032D60" },
+};
+
+export interface BrandIdentity {
+  primaryColor: string;
+  accentColor: string;
+  logoUrl?: string;
+  companyName: string;
+}
+
+export function inferBrand(profile: Profile): BrandIdentity {
+  const overrides = profile.brand_overrides as BrandOverrides;
+
+  if (overrides.primary_color && overrides.accent_color) {
+    return {
+      primaryColor: overrides.primary_color,
+      accentColor: overrides.accent_color,
+      logoUrl: overrides.logo_url,
+      companyName: profile.company || "Newsletter",
+    };
+  }
+
+  const key = (profile.company || "").toLowerCase().replace(/\s+/g, "");
+  const palette = BRAND_PALETTE[key];
+
+  if (palette) {
+    return {
+      primaryColor: palette.primary,
+      accentColor: palette.accent,
+      logoUrl: overrides.logo_url,
+      companyName: profile.company,
+    };
+  }
+
+  return {
+    primaryColor: "#1a1a2e",
+    accentColor: "#e94560",
+    logoUrl: overrides.logo_url,
+    companyName: profile.company || "Newsletter",
+  };
+}
+
+export async function runDesignAgent(
+  markdown: string,
+  profile: Profile,
+  tracker: CostTracker
+): Promise<string> {
+  const brand = inferBrand(profile);
+
+  const system = `You are a design agent generating email-client-safe responsive HTML for a newsletter.
+
+Brand identity:
+- Company: ${brand.companyName}
+- Primary color: ${brand.primaryColor}
+- Accent color: ${brand.accentColor}
+${brand.logoUrl ? `- Logo URL: ${brand.logoUrl}` : "- Generate a simple text wordmark for the company name"}
+
+Requirements:
+- Inline styles only (no external CSS)
+- Table-based layout for email client compatibility
+- Neutral background, readable on mobile
+- Responsive: max-width 600px container
+- Style headings with brand primary color
+- Style links with accent color
+- Include a header with company wordmark/logo
+- Include a footer with generation date
+- Convert the markdown content faithfully to HTML
+- Preserve all hyperlinks from the markdown
+
+Return HTML only. No markdown fences. No preamble.`;
+
+  const html = await callLLM("sonnet", system, markdown, tracker, 8192);
+  return stripCodeFences(html);
+}
+
+export function markdownToPlainHtml(markdown: string, brand: BrandIdentity): string {
+  let html = markdown
+    .replace(/^### (.+)$/gm, `<h3 style="color:${brand.primaryColor};margin:24px 0 8px;font-size:18px;">$1</h3>`)
+    .replace(/^## (.+)$/gm, `<h2 style="color:${brand.primaryColor};margin:32px 0 12px;font-size:22px;">$1</h2>`)
+    .replace(/^# (.+)$/gm, `<h1 style="color:${brand.primaryColor};margin:0 0 16px;font-size:28px;">$1</h1>`)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[(.+?)\]\((.+?)\)/g, `<a href="$2" style="color:${brand.accentColor};">$1</a>`)
+    .replace(/^- (.+)$/gm, `<li style="margin:4px 0;">$1</li>`)
+    .replace(/(<li[^>]*>.*<\/li>\n?)+/g, (match) => `<ul style="padding-left:20px;margin:12px 0;">${match}</ul>`)
+    .replace(/\n\n/g, '</p><p style="margin:12px 0;line-height:1.6;color:#333;">')
+    .replace(/\n/g, "<br>");
+
+  return wrapInEmailTemplate(html, brand);
+}
+
+function wrapInEmailTemplate(content: string, brand: BrandIdentity): string {
+  const date = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const logoBlock = brand.logoUrl
+    ? `<img src="${brand.logoUrl}" alt="${brand.companyName}" style="max-height:40px;margin-bottom:8px;" />`
+    : `<div style="font-size:24px;font-weight:700;color:${brand.primaryColor};">${brand.companyName}</div>`;
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Georgia,'Times New Roman',serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;">
+<tr><td align="center" style="padding:24px 16px;">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;max-width:600px;width:100%;">
+<tr><td style="padding:32px 32px 16px;border-bottom:3px solid ${brand.primaryColor};">
+${logoBlock}
+<div style="font-size:13px;color:#666;margin-top:4px;">${date}</div>
+</td></tr>
+<tr><td style="padding:24px 32px;">
+<p style="margin:12px 0;line-height:1.6;color:#333;">${content}</p>
+</td></tr>
+<tr><td style="padding:16px 32px 32px;border-top:1px solid #eee;font-size:12px;color:#999;">
+Generated by ${brand.companyName} Newsletter · ${date}
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+function stripCodeFences(html: string): string {
+  return html
+    .replace(/^```html?\n?/i, "")
+    .replace(/\n?```$/i, "")
+    .trim();
+}
+
+export { wrapInEmailTemplate };

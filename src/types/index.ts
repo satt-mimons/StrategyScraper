@@ -3,9 +3,7 @@ export type Lane =
   | "analyst"
   | "substack"
   | "substack-open"
-  | "medium"
-  | "x"
-  | "linkedin";
+  | "medium";
 
 export type RunStatus = "queued" | "running" | "done" | "failed";
 
@@ -54,12 +52,8 @@ export interface Run {
 }
 
 export interface LaneStatEntry {
-  lane: "news" | "analyst" | "substack" | "medium" | "x" | "linkedin";
+  lane: "news" | "analyst" | "substack" | "medium";
   raw_count: number;
-  /** X lane: Apify results before lane quality filter */
-  pre_filter_count?: number | null;
-  /** X lane: results after lane quality filter (before final dedupe cap) */
-  post_filter_count?: number | null;
   survived_count: number;
   error: string | null;
 }
@@ -139,7 +133,6 @@ export interface ExaQueryPayload {
 
 export interface CostTracker {
   exaSearches: number;
-  apifyRuns: number;
   opusInputTokens: number;
   opusOutputTokens: number;
   sonnetInputTokens: number;
@@ -155,10 +148,6 @@ export interface LaneResult {
   candidates: Omit<Candidate, "run_id">[];
   success: boolean;
   error?: string;
-  /** Apify items before X lane quality filter */
-  pre_filter_count?: number;
-  /** Items passing X lane quality filter */
-  post_filter_count?: number;
 }
 
 import type { RecencyLane } from "@/lib/recency";

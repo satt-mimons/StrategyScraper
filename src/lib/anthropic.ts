@@ -21,7 +21,6 @@ export const MODELS = {
 export function createCostTracker(): CostTracker {
   return {
     exaSearches: 0,
-    apifyRuns: 0,
     opusInputTokens: 0,
     opusOutputTokens: 0,
     sonnetInputTokens: 0,
@@ -30,9 +29,7 @@ export function createCostTracker(): CostTracker {
 }
 
 export function estimateCost(tracker: CostTracker): number {
-  const exa =
-    tracker.exaSearches * PRICING.exaPerSearch +
-    tracker.apifyRuns * (PRICING.apifyXPer1k / 1000) * 100;
+  const exa = tracker.exaSearches * PRICING.exaPerSearch;
   const opus =
     (tracker.opusInputTokens / 1_000_000) * PRICING.opusInputPer1M +
     (tracker.opusOutputTokens / 1_000_000) * PRICING.opusOutputPer1M;
@@ -51,15 +48,14 @@ export interface CostCheckResult {
   message?: string;
 }
 
-/** Project cost if additional Exa/Apify calls are made. Warn at $3, block at $5. */
+/** Project cost if additional Exa calls are made. Warn at $3, block at $5. */
 export function checkCostProjection(
   tracker: CostTracker,
-  extra: { exa?: number; apify?: number } = {}
+  extra: { exa?: number } = {}
 ): CostCheckResult {
   const projected: CostTracker = {
     ...tracker,
     exaSearches: tracker.exaSearches + (extra.exa ?? 0),
-    apifyRuns: tracker.apifyRuns + (extra.apify ?? 0),
   };
   const estimate = estimateCost(projected);
 

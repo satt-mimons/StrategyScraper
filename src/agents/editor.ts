@@ -25,10 +25,11 @@ Required structure:
 - ## TLDR at top: ${TLDR_BULLET_MIN}–${TLDR_BULLET_MAX} bullets (plain bullets; bold topic-sentence pattern not required here)
 - Then ## sections titled with each user topic that has content
 - WITHIN each topic section: bullets ONLY — one bullet per distinct story. NO paragraph prose blocks
-- Each story bullet MUST open with a **bold topic sentence** stating the core point, then the sharp take with inline multi-source links
+- Each story bullet MUST open with a **bold topic sentence** stating the core point, then the sharp take with inline source links distributed THROUGHOUT (specific claims/figures linked to specific sources), not a single trailing citation
 - If the draft uses paragraph prose inside a topic section, REWRITE it as the required bullet structure — do not leave prose blocks
-- Preserve multi-source citations per bullet; do not collapse to a single link
-- Further Reading grouped by topic with must_read links first; preserve that structure
+- Preserve and, where a bullet is thin on links, ADD inline source links throughout it (aim for 3+ distinct sources when available); never collapse to one link
+- Mainstream NEWS sources are first-class: ensure they are represented in the bullets, not dropped in favor of niche/analyst commentary
+- Further Reading is a short per-topic "Must read" list ONLY (no "Context" list) — preserve that structure and do not add a Context section
 - Maximum ~${MAX_WORD_COUNT} words excluding link URLs
 
 VOICE (§14) — apply at the bullet level, not only in TLDR:

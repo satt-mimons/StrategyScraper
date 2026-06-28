@@ -147,19 +147,6 @@ export async function saveNewsletter(
   if (error) throw error;
 }
 
-export async function getLastSuccessfulRunDate(): Promise<Date | null> {
-  const { data, error } = await getSupabase()
-    .from("runs")
-    .select("finished_at")
-    .eq("status", "done")
-    .order("finished_at", { ascending: false })
-    .limit(1)
-    .single();
-  if (error && error.code !== "PGRST116") throw error;
-  if (!data?.finished_at) return null;
-  return new Date(data.finished_at);
-}
-
 export async function getRun(runId: string): Promise<Run | null> {
   const { data, error } = await getSupabase()
     .from("runs")

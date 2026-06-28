@@ -33,14 +33,6 @@ export function buildRawLaneStats(laneResults: LaneResult[]): LaneStatEntry[] {
 
     const entry = byLane.get(canonical)!;
     entry.raw_count += result.candidates.length;
-    if (result.pre_filter_count != null && canonical === "x") {
-      entry.pre_filter_count =
-        (entry.pre_filter_count ?? 0) + result.pre_filter_count;
-    }
-    if (result.post_filter_count != null && canonical === "x") {
-      entry.post_filter_count =
-        (entry.post_filter_count ?? 0) + result.post_filter_count;
-    }
     if (result.error) {
       entry.error = result.error;
     } else if (!result.success && result.candidates.length === 0 && !entry.error) {
@@ -78,26 +70,15 @@ export function formatLaneStatEntry(entry: LaneStatEntry): string {
     return `${label}: 0 fetched`;
   }
 
-  const xFilterNote =
-    entry.lane === "x" &&
-    entry.pre_filter_count != null &&
-    entry.post_filter_count != null
-      ? ` (${entry.pre_filter_count} pre-filter / ${entry.post_filter_count} post-filter)`
-      : entry.lane === "x" &&
-          entry.pre_filter_count != null &&
-          entry.pre_filter_count > entry.raw_count
-        ? ` (${entry.pre_filter_count} pre-filter)`
-        : "";
-
   if (entry.survived_count > 0) {
-    return `${label}: ${entry.raw_count} fetched${xFilterNote} / ${entry.survived_count} used`;
+    return `${label}: ${entry.raw_count} fetched / ${entry.survived_count} used`;
   }
 
   if (entry.error) {
-    return `${label}: ${entry.raw_count} fetched${xFilterNote} / 0 used · ${entry.error}`;
+    return `${label}: ${entry.raw_count} fetched / 0 used · ${entry.error}`;
   }
 
-  return `${label}: ${entry.raw_count} fetched${xFilterNote} / 0 used`;
+  return `${label}: ${entry.raw_count} fetched / 0 used`;
 }
 
 export function formatLaneStatsSummary(stats: LaneStatEntry[]): string {

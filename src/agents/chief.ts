@@ -27,7 +27,7 @@ import {
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
 import { isDenylisted } from "@/lib/source-quality";
-import { buildLaneRecencyCutoffs } from "@/lib/recency";
+import { buildLaneRecencyCutoffs, isOlderThanCutoff } from "@/lib/recency";
 import {
   loadSentUrlSet,
   countWordsExcludingLinks,
@@ -168,9 +168,16 @@ async function runPipelineInner(
     // cluster the WHOLE pool into distinct stories (dedup by event AND by core argument),
     // THEN select a topic-balanced set. Clustering before selection means selection counts
     // distinct stories, not raw articles.
+    // Strict recency cutoff (uniform across lanes) — drop anything dated older than the
+    // selected frequency window before it can reach clustering/selection.
+    const strictCutoff = laneRecencyCutoffs.news;
     const pool = dedupeByUrl(
       candidates.filter(
-        (c) => c.url && !sentUrls.has(c.url) && !isDenylisted(c.url)
+        (c) =>
+          c.url &&
+          !sentUrls.has(c.url) &&
+          !isDenylisted(c.url) &&
+          !isOlderThanCutoff(c.published_date, strictCutoff)
       )
     );
 

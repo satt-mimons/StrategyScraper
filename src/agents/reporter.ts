@@ -81,11 +81,12 @@ STRUCTURE (strict — follow exactly):
    For each bullet:
    a) Open with a **bold topic sentence** stating the story's core point (reader can scan bold lines only).
    b) Follow with a 2–4 sentence sharp take in the configured voice (tone spec).
-   c) Cite MULTIPLE SOURCES inline from that cluster's sources[] — use markdown [text](url). When source_count > 1, show breadth (e.g. "reported across N outlets this week" using the cluster's source_count, or name mainstream + niche channels).
-   d) Prefer citing at least two URLs per cluster when available; use lead_url plus additional sources.
+   c) Embed inline source links THROUGHOUT the take — hyperlink the specific claim, datapoint, or quote to the source it came from with markdown [text](url), NOT one trailing citation. Every factual assertion must be traceable to a linked source from that cluster's sources[]. The reader should be able to click through to the original at each point, not just see your synthesis.
+   d) Cite MULTIPLE distinct sources per bullet (3+ when the cluster has them), and include at least one mainstream NEWS source for factual grounding whenever one exists in the cluster. Show breadth when source_count > 1 (e.g. "reported across N outlets").
 
 SECTION COMPOSITION:
 - Across each topic section, ensure at least one bullet draws on a mainstream source AND at least one bullet draws on a niche_blog or analyst source, where those types exist in that section's clusters.
+- Lean on mainstream NEWS reporting for facts, figures, and timelines — do not under-use news in favor of niche/analyst commentary. News sources are first-class: surface them across the sections with inline links, not just as background.
 - Target ${CLUSTER_DISTINCT_STORY_MIN}–${CLUSTER_DISTINCT_STORY_MAX} distinct story bullets total across all sections, drawing on 20–30 source URLs.
 
 LENGTH:
@@ -96,6 +97,7 @@ LINK & PAYWALL RULES:
 - Paywalled sources: headline + snippet + link labeled (paywalled); summarize ONLY from snippet/highlights provided
 
 Write for a ${profile.role || "professional"} at ${profile.company || "their company"}.
+Use the company only as CONTEXT for relevance — frame every story around the broader THEME, never around the company's own products or announcements. A peer at a direct competitor should find each story insightful; if a story matters only because it concerns this company, it does not belong.
 Do NOT add a flat SOURCES list — Further Reading is appended automatically.
 
 Return markdown only. No preamble.`;
@@ -120,7 +122,7 @@ Return markdown only. No preamble.`;
     );
   }
 
-  draft = appendFurtherReading(draft, flatSources, topicOrder);
+  draft = appendFurtherReading(draft, flatSources, topicOrder, profile);
 
   return draft;
 }

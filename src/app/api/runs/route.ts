@@ -16,11 +16,11 @@ export async function GET() {
           status: "failed",
           finished_at: new Date().toISOString(),
           error:
-            "Run timed out — likely stuck on Apify (X/LinkedIn) or LLM synthesis. Restart dev server and try again.",
+            "Run timed out — likely stuck on a slow research lane or LLM synthesis. Restart dev server and try again.",
         });
         run.status = "failed";
         run.error =
-          "Run timed out — likely stuck on Apify (X/LinkedIn) or LLM synthesis. Restart dev server and try again.";
+          "Run timed out — likely stuck on a slow research lane or LLM synthesis. Restart dev server and try again.";
         run.finished_at = new Date().toISOString();
       }
     }

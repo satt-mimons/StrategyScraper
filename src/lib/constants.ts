@@ -84,7 +84,19 @@ export const LANE_FETCH_TARGET_MIN: Record<string, number> = {
 export const SOURCE_DENYLIST_SEED = ["investing.com"];
 
 export const DEFAULT_PROFILE_FREQUENCY = "weekly" as const;
-export const MAX_WORD_COUNT = 3000;
+export const MAX_WORD_COUNT = 2000;
+
+/**
+ * Length budgeting (reporter). The reporter spends a word budget across stories in
+ * relevance-priority order, giving top stories full depth and dropping the tail to
+ * Further Reading — so the newsletter finishes within budget and the styled HTML stays
+ * under the design stage's output-token ceiling.
+ */
+export const REPORTER_TLDR_WORD_RESERVE = 200;
+export const FURTHER_READING_WORD_RESERVE = 150;
+/** Per-story word targets the budgeter assigns by priority. */
+export const STORY_WORDS_FULL = 180;
+export const STORY_WORDS_BRIEF = 80;
 export const TLDR_BULLET_MIN = 5;
 export const TLDR_BULLET_MAX = 7;
 

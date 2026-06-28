@@ -103,6 +103,8 @@ export interface ClusteredStory {
   /** Primary URL for inline citation in prose */
   lead_url: string;
   cluster_note?: string;
+  /** Global relevance priority (0 = most relevant); set by the filter ranker. */
+  priority?: number;
 }
 
 export interface SelectedStory {

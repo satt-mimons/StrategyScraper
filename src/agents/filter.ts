@@ -81,6 +81,10 @@ export async function selectStories(
     if (ra !== rb) return ra - rb;
     return b.source_count - a.source_count;
   });
+  // Stamp global relevance priority (0 = most relevant) for downstream length budgeting.
+  ordered.forEach((c, i) => {
+    c.priority = i;
+  });
 
   // Bucket by topic, preserving the global relevance order within each topic.
   const byTopicClusters = new Map<string, ClusteredStory[]>();

@@ -15,6 +15,8 @@ export interface BrandOverrides {
   logo_url?: string;
 }
 
+export type ProfileFrequency = "daily" | "weekly" | "biweekly" | "monthly";
+
 export interface Profile {
   id: string;
   company: string;
@@ -23,6 +25,14 @@ export interface Profile {
   tone_spec: string;
   preferred_pubs: string[];
   analyst_firms: string[];
+  /** User-editable firm domain watchlist (§17) — drives analyst primary-content pass */
+  analyst_firm_domains: string[];
+  /** Send cadence — drives per-lane recency base windows */
+  frequency: ProfileFrequency;
+  /** Curated LinkedIn profile/company URLs */
+  linkedin_urls: string[];
+  /** Must-read Substack publication URLs */
+  substack_urls: string[];
   brand_overrides: BrandOverrides;
   recipients: string[];
   reply_to: string;
@@ -39,7 +49,19 @@ export interface Run {
   error: string | null;
   lanes_succeeded: string[];
   lanes_failed: string[];
+  lane_stats: LaneStatEntry[];
   created_at: string;
+}
+
+export interface LaneStatEntry {
+  lane: "news" | "analyst" | "substack" | "medium" | "x" | "linkedin";
+  raw_count: number;
+  /** X lane: Apify results before lane quality filter */
+  pre_filter_count?: number | null;
+  /** X lane: results after lane quality filter (before final dedupe cap) */
+  post_filter_count?: number | null;
+  survived_count: number;
+  error: string | null;
 }
 
 export interface Candidate {
@@ -57,12 +79,50 @@ export interface Candidate {
   platform_post_id?: string | null;
 }
 
+export type LinkTier = "must_read" | "context";
+
+/** Source-type bucket for clustered stories (§8.5) */
+export type StorySourceType = "mainstream" | "niche_blog" | "analyst";
+
+export interface StorySource {
+  url: string;
+  title: string;
+  lane: Lane;
+  source_type: StorySourceType;
+  author?: string;
+  snippet?: string;
+  highlights?: string[];
+  is_paywalled: boolean;
+  link_tier: LinkTier;
+  why_selected?: string;
+}
+
+/** Distinct story after semantic clustering — may span multiple source URLs */
+export interface ClusteredStory {
+  cluster_id: string;
+  headline: string;
+  primary_topic: string;
+  sources: StorySource[];
+  source_count: number;
+  /** Unique source-type buckets represented in this cluster */
+  source_types: StorySourceType[];
+  /** Primary URL for inline citation in prose */
+  lead_url: string;
+  cluster_note?: string;
+}
+
 export interface SelectedStory {
   url: string;
   title: string;
   lane: Lane;
   why_selected: string;
   is_paywalled: boolean;
+  /** Single primary user topic (from profile.topics) */
+  primary_topic: string;
+  /** Link prominence in Further Reading */
+  link_tier: LinkTier;
+  /** Preferred citation URL after aggregator resolution */
+  cite_url?: string;
   author?: string;
   snippet?: string;
   highlights?: string[];
@@ -84,6 +144,10 @@ export interface CostTracker {
   opusOutputTokens: number;
   sonnetInputTokens: number;
   sonnetOutputTokens: number;
+  /** Set when projected run cost exceeds RUN_COST_WARN_USD */
+  costWarnFlagged?: boolean;
+  /** Set when projected run cost would exceed RUN_COST_CAP_USD */
+  costCapHit?: boolean;
 }
 
 export interface LaneResult {
@@ -91,11 +155,18 @@ export interface LaneResult {
   candidates: Omit<Candidate, "run_id">[];
   success: boolean;
   error?: string;
+  /** Apify items before X lane quality filter */
+  pre_filter_count?: number;
+  /** Items passing X lane quality filter */
+  post_filter_count?: number;
 }
+
+import type { RecencyLane } from "@/lib/recency";
 
 export interface PipelineContext {
   runId: string;
   profile: Profile;
-  recencyCutoff: Date;
+  /** Per-lane recency cutoffs (lookback_days = max(daysSinceLastSend, base_window)) */
+  laneRecencyCutoffs: Record<RecencyLane, Date>;
   costTracker: CostTracker;
 }

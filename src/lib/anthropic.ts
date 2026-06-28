@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { CostTracker } from "@/types";
-import { PRICING, RUN_COST_CAP_USD } from "@/lib/constants";
+import { PRICING, RUN_COST_CAP_USD, RUN_COST_WARN_USD } from "@/lib/constants";
 
 let client: Anthropic | null = null;
 
@@ -14,8 +14,8 @@ function getClient(): Anthropic {
 }
 
 export const MODELS = {
-  opus: "claude-opus-4-20250514",
-  sonnet: "claude-sonnet-4-20250514",
+  opus: "claude-opus-4-6",
+  sonnet: "claude-sonnet-4-6",
 } as const;
 
 export function createCostTracker(): CostTracker {
@@ -42,20 +42,48 @@ export function estimateCost(tracker: CostTracker): number {
   return exa + opus + sonnet;
 }
 
-export function checkCostCap(tracker: CostTracker): {
+export type CostCheckLevel = "ok" | "warn" | "cap";
+
+export interface CostCheckResult {
   ok: boolean;
   estimate: number;
+  level: CostCheckLevel;
   message?: string;
-} {
-  const estimate = estimateCost(tracker);
+}
+
+/** Project cost if additional Exa/Apify calls are made. Warn at $3, block at $5. */
+export function checkCostProjection(
+  tracker: CostTracker,
+  extra: { exa?: number; apify?: number } = {}
+): CostCheckResult {
+  const projected: CostTracker = {
+    ...tracker,
+    exaSearches: tracker.exaSearches + (extra.exa ?? 0),
+    apifyRuns: tracker.apifyRuns + (extra.apify ?? 0),
+  };
+  const estimate = estimateCost(projected);
+
   if (estimate > RUN_COST_CAP_USD) {
     return {
       ok: false,
       estimate,
+      level: "cap",
       message: `Run projected cost $${estimate.toFixed(2)} exceeds cap of $${RUN_COST_CAP_USD}`,
     };
   }
-  return { ok: true, estimate };
+  if (estimate > RUN_COST_WARN_USD) {
+    return {
+      ok: true,
+      estimate,
+      level: "warn",
+      message: `Run projected cost $${estimate.toFixed(2)} exceeds warn threshold of $${RUN_COST_WARN_USD}`,
+    };
+  }
+  return { ok: true, estimate, level: "ok" };
+}
+
+export function checkCostCap(tracker: CostTracker): CostCheckResult {
+  return checkCostProjection(tracker);
 }
 
 export async function callLLM(
@@ -67,7 +95,11 @@ export async function callLLM(
 ): Promise<string> {
   const capCheck = checkCostCap(tracker);
   if (!capCheck.ok) {
+    tracker.costCapHit = true;
     throw new Error(capCheck.message);
+  }
+  if (capCheck.level === "warn") {
+    tracker.costWarnFlagged = true;
   }
 
   const response = await getClient().messages.create({

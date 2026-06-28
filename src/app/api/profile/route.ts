@@ -4,8 +4,11 @@ import { getProfile, upsertProfile } from "@/lib/supabase";
 import {
   DEFAULT_TONE_SPEC,
   DEFAULT_PREFERRED_PUBS,
-  DEFAULT_ANALYST_FIRMS,
+  DEFAULT_ANALYST_FIRM_DOMAINS,
+  DEFAULT_PROFILE_FREQUENCY,
 } from "@/lib/constants";
+
+const frequencySchema = z.enum(["daily", "weekly", "biweekly", "monthly"]);
 
 const profileSchema = z.object({
   company: z.string().optional(),
@@ -14,6 +17,10 @@ const profileSchema = z.object({
   tone_spec: z.string().optional(),
   preferred_pubs: z.array(z.string()).optional(),
   analyst_firms: z.array(z.string()).optional(),
+  analyst_firm_domains: z.array(z.string()).optional(),
+  frequency: frequencySchema.optional(),
+  linkedin_urls: z.array(z.string()).optional(),
+  substack_urls: z.array(z.string()).optional(),
   brand_overrides: z
     .object({
       primary_color: z.string().optional(),
@@ -48,7 +55,11 @@ export async function PUT(request: Request) {
       topics: parsed.topics ?? [],
       tone_spec: parsed.tone_spec ?? DEFAULT_TONE_SPEC,
       preferred_pubs: parsed.preferred_pubs ?? DEFAULT_PREFERRED_PUBS,
-      analyst_firms: parsed.analyst_firms ?? DEFAULT_ANALYST_FIRMS,
+      analyst_firm_domains:
+        parsed.analyst_firm_domains ?? DEFAULT_ANALYST_FIRM_DOMAINS,
+      frequency: parsed.frequency ?? DEFAULT_PROFILE_FREQUENCY,
+      linkedin_urls: parsed.linkedin_urls ?? [],
+      substack_urls: parsed.substack_urls ?? [],
       brand_overrides: parsed.brand_overrides ?? {},
       recipients: parsed.recipients ?? [],
       reply_to: parsed.reply_to ?? "",

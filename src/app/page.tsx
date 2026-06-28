@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Profile, Run } from "@/types";
+import { formatLaneStatsSummary } from "@/lib/lane-stats";
 import {
   DEFAULT_TONE_SPEC,
   DEFAULT_PREFERRED_PUBS,
-  DEFAULT_ANALYST_FIRMS,
+  DEFAULT_ANALYST_FIRM_DOMAINS,
+  DEFAULT_PROFILE_FREQUENCY,
 } from "@/lib/constants";
 
 function TagInput({
@@ -77,7 +79,10 @@ export default function Home() {
     topics: [],
     tone_spec: DEFAULT_TONE_SPEC,
     preferred_pubs: DEFAULT_PREFERRED_PUBS,
-    analyst_firms: DEFAULT_ANALYST_FIRMS,
+    analyst_firm_domains: DEFAULT_ANALYST_FIRM_DOMAINS,
+    frequency: DEFAULT_PROFILE_FREQUENCY,
+    linkedin_urls: [],
+    substack_urls: [],
     brand_overrides: {},
     recipients: [],
     reply_to: "",
@@ -120,7 +125,11 @@ export default function Home() {
           type: data.run.status === "done" ? "success" : "error",
           text:
             data.run.status === "done"
-              ? "Newsletter generated and sent!"
+              ? `Newsletter generated and sent!${
+                  data.run.lane_stats?.length
+                    ? ` ${formatLaneStatsSummary(data.run.lane_stats)}`
+                    : ""
+                }`
               : `Generation failed: ${data.run.error}`,
         });
         clearInterval(interval);
@@ -139,7 +148,15 @@ export default function Home() {
         body: JSON.stringify(profile),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Save failed");
+      if (!res.ok) {
+        const msg =
+          typeof data.error === "string"
+            ? data.error
+            : Array.isArray(data.error)
+              ? data.error.map((e: { message?: string }) => e.message).join("; ")
+              : "Save failed";
+        throw new Error(msg);
+      }
       setProfile(data.profile);
       setMessage({ type: "success", text: "Profile saved." });
     } catch (err) {
@@ -219,6 +236,28 @@ export default function Home() {
           </div>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium mb-1">Send Frequency</label>
+          <select
+            value={profile.frequency ?? DEFAULT_PROFILE_FREQUENCY}
+            onChange={(e) =>
+              setProfile({
+                ...profile,
+                frequency: e.target.value as Profile["frequency"],
+              })
+            }
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            Drives per-lane recency windows (news short; discovery 7–14d; X 48–72h).
+          </p>
+        </div>
+
         <TagInput
           label="Topics"
           values={profile.topics ?? []}
@@ -265,9 +304,24 @@ export default function Home() {
               onChange={(preferred_pubs) => setProfile({ ...profile, preferred_pubs })}
             />
             <TagInput
-              label="Analyst Firms"
-              values={profile.analyst_firms ?? []}
-              onChange={(analyst_firms) => setProfile({ ...profile, analyst_firms })}
+              label="Analyst Firm Domains (watchlist)"
+              values={profile.analyst_firm_domains ?? []}
+              onChange={(analyst_firm_domains) =>
+                setProfile({ ...profile, analyst_firm_domains })
+              }
+              placeholder="bain.com"
+            />
+            <TagInput
+              label="Must-Read Substack URLs"
+              values={profile.substack_urls ?? []}
+              onChange={(substack_urls) => setProfile({ ...profile, substack_urls })}
+              placeholder="https://newsletter.substack.com"
+            />
+            <TagInput
+              label="LinkedIn Profile / Company URLs"
+              values={profile.linkedin_urls ?? []}
+              onChange={(linkedin_urls) => setProfile({ ...profile, linkedin_urls })}
+              placeholder="https://linkedin.com/in/… or /company/…"
             />
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -344,35 +398,45 @@ export default function Home() {
             {runs.map((run) => (
               <div
                 key={run.id}
-                className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-sm"
+                className="px-3 py-3 bg-gray-50 rounded-lg text-sm space-y-2"
               >
-                <span className="font-mono text-xs text-gray-500">
-                  {run.id.slice(0, 8)}
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    run.status === "done"
-                      ? "bg-green-100 text-green-700"
-                      : run.status === "failed"
-                        ? "bg-red-100 text-red-700"
-                        : run.status === "running"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {run.status}
-                </span>
-                <span className="text-gray-400 text-xs">
-                  {run.finished_at
-                    ? new Date(run.finished_at).toLocaleString()
-                    : run.started_at
-                      ? "in progress…"
-                      : "queued"}
-                </span>
-                {run.cost_estimate_usd > 0 && (
-                  <span className="text-gray-400 text-xs">
-                    ${Number(run.cost_estimate_usd).toFixed(2)}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-mono text-xs text-gray-500">
+                    {run.id.slice(0, 8)}
                   </span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      run.status === "done"
+                        ? "bg-green-100 text-green-700"
+                        : run.status === "failed"
+                          ? "bg-red-100 text-red-700"
+                          : run.status === "running"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {run.status}
+                  </span>
+                  <span className="text-gray-400 text-xs">
+                    {run.finished_at
+                      ? new Date(run.finished_at).toLocaleString()
+                      : run.started_at
+                        ? "in progress…"
+                        : "queued"}
+                  </span>
+                  {run.cost_estimate_usd > 0 && (
+                    <span className="text-gray-400 text-xs">
+                      ${Number(run.cost_estimate_usd).toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                {run.lane_stats && run.lane_stats.length > 0 && (
+                  <p className="text-xs text-gray-600 font-mono leading-relaxed break-words">
+                    {formatLaneStatsSummary(run.lane_stats)}
+                  </p>
+                )}
+                {run.error && (
+                  <p className="text-xs text-red-600">{run.error}</p>
                 )}
               </div>
             ))}

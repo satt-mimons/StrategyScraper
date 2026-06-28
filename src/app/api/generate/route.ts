@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { runPipeline } from "@/agents/chief";
 import { createRun, getProfile, getRun } from "@/lib/supabase";
+import { getDeliveryRecipients } from "@/lib/resend";
 
 export const maxDuration = 300;
 
@@ -21,9 +22,9 @@ export async function POST() {
       );
     }
 
-    if (profile.recipients.length === 0) {
+    if (getDeliveryRecipients(profile.recipients).length === 0) {
       return NextResponse.json(
-        { error: "Add at least one recipient email before generating." },
+        { error: "Add at least one recipient email (or set RESEND_TO_EMAIL in .env.local)." },
         { status: 400 }
       );
     }

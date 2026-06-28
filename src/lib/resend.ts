@@ -11,6 +11,13 @@ function getResend(): Resend {
   return resend;
 }
 
+/** Prototype/free tier: RESEND_TO_EMAIL overrides profile recipients when set. */
+export function getDeliveryRecipients(profileRecipients: string[]): string[] {
+  const envRecipient = process.env.RESEND_TO_EMAIL?.trim();
+  if (envRecipient) return [envRecipient];
+  return profileRecipients;
+}
+
 export async function sendNewsletterEmail(
   recipients: string[],
   subject: string,
@@ -28,7 +35,13 @@ export async function sendNewsletterEmail(
     replyTo: replyTo || process.env.RESEND_REPLY_TO || undefined,
   });
 
-  if (error) throw new Error(`Resend send failed: ${error.message}`);
+  if (error) {
+    const hint =
+      error.message.includes("testing emails to your own email")
+        ? " Resend test mode: use onboarding@resend.dev as FROM and send only to your Resend signup email, or verify a domain at resend.com/domains."
+        : "";
+    throw new Error(`Resend send failed: ${error.message}${hint}`);
+  }
   if (!data?.id) throw new Error("Resend returned no message id");
   return { id: data.id };
 }

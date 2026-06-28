@@ -7,7 +7,7 @@ A single-tenant MVP that generates personalized newsletters on demand using a mu
 ```
 Generate Now → CHIEF (orchestrator)
   ├── News (Exa)
-  ├── Analyst (Exa)
+  ├── Analyst (Exa, triple-pass: news coverage + firm-name + primary firm domains)
   ├── Substack (Exa, dual-pass)
   ├── Medium (Exa, dual-pass)
   ├── X (Apify)
@@ -15,7 +15,7 @@ Generate Now → CHIEF (orchestrator)
        ↓
   Candidate Pool (Supabase)
        ↓
-  Filter → Reporter → Editor → Design → Resend
+  Filter → Cluster (§8.5) → Reporter → Editor → Design → Resend
 ```
 
 ## Setup
@@ -44,7 +44,7 @@ Copy `.env.example` to `.env.local` and fill in:
 
 ### 3. Run database migration
 
-Apply `supabase/migrations/001_initial.sql` in your Supabase SQL editor.
+Apply migrations in order in your Supabase SQL editor (`001` → `004`).
 
 ### 4. Start dev server
 

@@ -1,102 +1,81 @@
-import { generateExaQueries } from "@/agents/query-generator";
-import { enrichCandidate } from "@/agents/lanes/news";
-import { EXA_NUM_RESULTS } from "@/lib/constants";
-import { runExaSearch, isLikelySubstack, type ExaSearchResult } from "@/lib/exa";
+import { buildSubstackQueries } from "@/lib/exa-queries";
+import { fetchExaForTopicWithEscalation } from "@/lib/lane-escalation";
+import { fetchMustReadSubstackRss } from "@/lib/substack-rss";
+import { isLikelySubstack } from "@/lib/exa";
+import {
+  laneDeadline,
+  isPastDeadline,
+  exaResultToCandidate,
+  collectTopicsParallel,
+  laneResult,
+  MAX_CANDIDATES_PER_TOPIC,
+} from "@/agents/lanes/exa-lane-utils";
 import { dedupeByUrl } from "@/lib/utils";
 import type { Candidate, Lane, LaneResult, PipelineContext } from "@/types";
 
 /**
- * Substack lane (strongest discovery lane) — Exa-powered, dual-pass.
- * Pass 1: domain-scoped includeDomains substack.com
- * Pass 2: open neural query (catches custom-domain Substacks)
+ * Substack lane — dual-pass Exa (substack.com + open/custom-domain)
+ * plus guaranteed RSS sub-lane for profile must-read Substack URLs.
  */
-export async function runSubstackLane(
-  ctx: PipelineContext
-): Promise<LaneResult> {
-  const allCandidates: Omit<Candidate, "run_id">[] = [];
+export async function runSubstackLane(ctx: PipelineContext): Promise<LaneResult> {
+  const deadline = laneDeadline();
+  const mustReadUrls = ctx.profile.substack_urls ?? [];
 
   try {
-    for (const topic of ctx.profile.topics) {
-      const domainQueries = await generateExaQueries(
-        {
-          profile: ctx.profile,
-          topic,
-          lane: "substack",
-          includeDomains: ["substack.com"],
-          recencyCutoff: ctx.recencyCutoff,
-        },
-        ctx.costTracker
-      );
-
-      const openQueries = await generateExaQueries(
-        {
-          profile: ctx.profile,
-          topic,
-          lane: "substack",
-          recencyCutoff: ctx.recencyCutoff,
-        },
-        ctx.costTracker
-      );
-
-      const domainResults = await Promise.all(
-        domainQueries.map((q) =>
-          runExaSearch(
-            { ...q, includeDomains: ["substack.com"] },
-            ctx.costTracker,
-            ctx.profile.role
-          )
+    const rssItems = mustReadUrls.length
+      ? await fetchMustReadSubstackRss(
+          mustReadUrls,
+          ctx.laneRecencyCutoffs.substack,
+          ctx.profile.topics
         )
+      : [];
+
+    const rssCandidates: Omit<Candidate, "run_id">[] = rssItems.map((item) => ({
+      lane: "substack" as const,
+      url: item.url,
+      title: item.title,
+      author: "",
+      published_date: item.publishedDate,
+      snippet: item.snippet,
+      highlights: [],
+      raw_score: 1,
+      is_paywalled: false,
+      platform_post_id: null,
+    }));
+
+    const exaCandidates = await collectTopicsParallel(ctx, deadline, async (topic) => {
+      if (isPastDeadline(deadline)) return [];
+
+      const results = await fetchExaForTopicWithEscalation(
+        ctx,
+        "substack",
+        "substack",
+        topic,
+        (t, cutoff) => buildSubstackQueries(ctx.profile, t, cutoff),
+        { includeDomains: ["substack.com"] }
       );
 
-      const openResults = await Promise.all(
-        openQueries.map((q) => runExaSearch(q, ctx.costTracker, ctx.profile.role))
-      );
+      return dedupeByUrl(
+        results.map((r) => {
+          const laneTag: Lane =
+            r.url.includes("substack.com") || isLikelySubstack(r.url, r.snippet)
+              ? "substack"
+              : "substack-open";
+          return exaResultToCandidate(r, laneTag);
+        })
+      ).slice(0, MAX_CANDIDATES_PER_TOPIC);
+    });
 
-      const merged = dedupeByUrl([
-        ...domainResults.flat().map((r) => toSubstackCandidate(r, "substack")),
-        ...openResults.flat().map((r) => {
-          const laneTag: Lane = isLikelySubstack(r.url, r.snippet)
-            ? "substack"
-            : "substack-open";
-          return toSubstackCandidate(r, laneTag);
-        }),
-      ]);
+    const candidates = dedupeByUrl([...rssCandidates, ...exaCandidates]);
 
-      for (const candidate of merged.slice(0, EXA_NUM_RESULTS * 2)) {
-        const enriched = await enrichCandidate(candidate, ctx);
-        allCandidates.push(enriched);
-      }
-    }
-
-    return {
-      lane: "substack",
-      candidates: dedupeByUrl(allCandidates),
-      success: true,
-    };
+    const timedOut = isPastDeadline(deadline);
+    return laneResult("substack", candidates, timedOut);
   } catch (err) {
     return {
       lane: "substack",
-      candidates: allCandidates,
+      candidates: [],
       success: false,
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-function toSubstackCandidate(
-  r: ExaSearchResult,
-  lane: Lane
-): Omit<Candidate, "run_id"> {
-  return {
-    lane,
-    url: r.url,
-    title: r.title,
-    author: r.author,
-    published_date: r.publishedDate,
-    snippet: r.snippet,
-    highlights: r.highlights,
-    raw_score: r.score,
-    is_paywalled: false,
-    platform_post_id: null,
-  };
 }

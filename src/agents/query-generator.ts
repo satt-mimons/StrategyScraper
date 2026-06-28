@@ -1,5 +1,5 @@
 import { callLLM, parseJsonFromLLM } from "@/lib/anthropic";
-import { EXA_NUM_RESULTS, QUERY_GENERATOR_PROMPT } from "@/lib/constants";
+import { EXA_NUM_RESULTS_PER_QUERY, QUERY_GENERATOR_PROMPT } from "@/lib/constants";
 import type { CostTracker, ExaQueryPayload, Profile } from "@/types";
 import type { Lane } from "@/types";
 
@@ -26,7 +26,7 @@ export async function generateExaQueries(
     includeDomains: input.includeDomains ?? [],
     includeText: input.includeText ?? [],
     recencyCutoff: cutoffIso,
-    numResults: EXA_NUM_RESULTS,
+    numResults: EXA_NUM_RESULTS_PER_QUERY,
   });
 
   const systemPrompt = QUERY_GENERATOR_PROMPT.replace(
@@ -37,15 +37,38 @@ export async function generateExaQueries(
   const response = await callLLM("sonnet", systemPrompt, userPrompt, tracker, 2048);
 
   try {
-    const queries = parseJsonFromLLM<ExaQueryPayload[]>(response);
-    return queries.map((q) => ({
-      ...q,
-      numResults: q.numResults ?? EXA_NUM_RESULTS,
-      startPublishedDate: q.startPublishedDate ?? cutoffIso,
-    }));
+    const raw = parseJsonFromLLM<ExaQueryPayload[]>(response);
+    return raw.map((q) => sanitizeExaQuery(q, cutoffIso, input));
   } catch {
     return [fallbackQuery(input, cutoffIso)];
   }
+}
+
+function sanitizeExaQuery(
+  q: ExaQueryPayload,
+  cutoffIso: string,
+  input: QueryGenInput
+): ExaQueryPayload {
+  const sanitized: ExaQueryPayload = {
+    query: q.query,
+    numResults: q.numResults ?? EXA_NUM_RESULTS_PER_QUERY,
+    startPublishedDate: q.startPublishedDate ?? cutoffIso,
+  };
+
+  if (input.lane === "news" || input.lane === "analyst") {
+    sanitized.category = "news";
+  }
+  if (q.includeDomains?.length) {
+    sanitized.includeDomains = q.includeDomains;
+  } else if (input.includeDomains?.length) {
+    sanitized.includeDomains = input.includeDomains;
+  }
+  if (Array.isArray(q.includeText) && q.includeText.length === 1) {
+    sanitized.includeText = q.includeText;
+  } else if (input.includeText?.length === 1) {
+    sanitized.includeText = input.includeText;
+  }
+  return sanitized;
 }
 
 function fallbackQuery(
@@ -57,7 +80,7 @@ function fallbackQuery(
 
   const base: ExaQueryPayload = {
     query: `In-depth analysis of ${input.topic} relevant to a ${role} at ${company}, covering recent developments and strategic implications`,
-    numResults: EXA_NUM_RESULTS,
+    numResults: EXA_NUM_RESULTS_PER_QUERY,
     startPublishedDate: cutoffIso,
   };
 
@@ -85,8 +108,8 @@ Only summarize from provided highlights. Never invent content. Flag paywalled if
 
   const user = JSON.stringify({ title, highlights, role });
 
-  const response = await callLLM("opus", system, user, tracker, 512);
   try {
+    const response = await callLLM("opus", system, user, tracker, 512);
     return parseJsonFromLLM(response);
   } catch {
     return {

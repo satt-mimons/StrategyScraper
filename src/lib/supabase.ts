@@ -1,18 +1,38 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { normalizeProfile } from "@/lib/profile-utils";
 import type { Candidate, Profile, Run, RunStatus } from "@/types";
 
 let supabase: SupabaseClient | null = null;
 
+function validateSupabaseEnv(): { url: string; key: string } {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error(
+      "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local"
+    );
+  }
+  if (key.startsWith("sb_publishable_")) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is a publishable key. In Supabase → Project Settings → API, copy the secret / service_role key (starts with sb_secret_ or eyJ…), not the publishable key."
+    );
+  }
+  return { url, key };
+}
+
 export function getSupabase(): SupabaseClient {
   if (!supabase) {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-    }
+    const { url, key } = validateSupabaseEnv();
     supabase = createClient(url, key);
   }
   return supabase;
+}
+
+function formatDbError(error: { message: string; code?: string; hint?: string }): string {
+  if (error.code === "42P01") {
+    return "Database tables not found. Run supabase/migrations/001_initial.sql in the Supabase SQL Editor.";
+  }
+  return error.message;
 }
 
 export async function getProfile(): Promise<Profile | null> {
@@ -21,8 +41,11 @@ export async function getProfile(): Promise<Profile | null> {
     .select("*")
     .limit(1)
     .single();
-  if (error && error.code !== "PGRST116") throw error;
-  return data as Profile | null;
+  if (error && error.code !== "PGRST116") {
+    throw new Error(formatDbError(error));
+  }
+  if (!data) return null;
+  return normalizeProfile(data as Profile);
 }
 
 export async function upsertProfile(
@@ -37,7 +60,7 @@ export async function upsertProfile(
       .eq("id", existing.id)
       .select()
       .single();
-    if (error) throw error;
+    if (error) throw new Error(formatDbError(error));
     return data as Profile;
   }
 
@@ -46,7 +69,7 @@ export async function upsertProfile(
     .insert({ ...profile, updated_at: new Date().toISOString() })
     .select()
     .single();
-  if (error) throw error;
+  if (error) throw new Error(formatDbError(error));
   return data as Profile;
 }
 

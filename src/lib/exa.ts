@@ -1,4 +1,5 @@
 import Exa from "exa-js";
+import { checkCostProjection } from "@/lib/anthropic";
 import type { CostTracker } from "@/types";
 import type { ExaQueryPayload } from "@/types";
 
@@ -26,8 +27,17 @@ export interface ExaSearchResult {
 export async function runExaSearch(
   payload: ExaQueryPayload,
   tracker: CostTracker,
-  role?: string
+  _role?: string
 ): Promise<ExaSearchResult[]> {
+  const projected = checkCostProjection(tracker, { exa: 1 });
+  if (!projected.ok) {
+    tracker.costCapHit = true;
+    throw new Error(projected.message);
+  }
+  if (projected.level === "warn") {
+    tracker.costWarnFlagged = true;
+  }
+
   tracker.exaSearches += 1;
 
   const options: Record<string, unknown> = {
@@ -36,9 +46,6 @@ export async function runExaSearch(
     startPublishedDate: payload.startPublishedDate,
     contents: {
       highlights: true,
-      summary: role
-        ? { query: `What's the key insight for a ${role}?` }
-        : undefined,
     },
   };
 
@@ -66,6 +73,17 @@ export async function runExaSearch(
   }));
 }
 
+export async function safeExaSearch(
+  payload: ExaQueryPayload,
+  tracker: CostTracker,
+  role?: string
+): Promise<ExaSearchResult[]> {
+  try {
+    return await runExaSearch(payload, tracker, role);
+  } catch {
+    return [];
+  }
+}
 export function isLikelySubstack(url: string, snippet: string): boolean {
   const lower = (url + snippet).toLowerCase();
   return (

@@ -1,19 +1,10 @@
-import { RECENCY_FALLBACK_DAYS, SENT_URL_DEDUP_DAYS } from "@/lib/constants";
-import { getLastSuccessfulRunDate, getSentUrls } from "@/lib/supabase";
-
-export async function getRecencyCutoff(): Promise<Date> {
-  const lastRun = await getLastSuccessfulRunDate();
-  if (lastRun) return lastRun;
-
-  const fallback = new Date();
-  fallback.setDate(fallback.getDate() - RECENCY_FALLBACK_DAYS);
-  return fallback;
-}
+import { SENT_URL_DEDUP_DAYS } from "@/lib/constants";
+import { getSentUrls } from "@/lib/supabase";
 
 export function getSentUrlCutoff(): Date {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - SENT_URL_DEDUP_DAYS);
-  return cutoff;
+  const d = new Date();
+  d.setDate(d.getDate() - SENT_URL_DEDUP_DAYS);
+  return d;
 }
 
 export async function loadSentUrlSet(): Promise<Set<string>> {
@@ -22,7 +13,6 @@ export async function loadSentUrlSet(): Promise<Set<string>> {
 
 export function countWordsExcludingLinks(text: string): number {
   const withoutLinks = text.replace(/\[([^\]]*)\]\([^)]+\)/g, "$1");
-  // markdown links removed
   const withoutUrls = withoutLinks.replace(/https?:\/\/\S+/g, "");
   return withoutUrls.split(/\s+/).filter(Boolean).length;
 }
@@ -91,4 +81,28 @@ export function withTimeout<T>(
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
     ),
   ]);
+}
+
+/** Extract hostnames from user-provided URLs (Substack / LinkedIn curated lists). */
+export function hostnamesFromUrls(urls: string[]): string[] {
+  const hosts = new Set<string>();
+  for (const raw of urls) {
+    try {
+      const href = raw.startsWith("http") ? raw : `https://${raw}`;
+      hosts.add(new URL(href).hostname.replace(/^www\./, ""));
+    } catch {
+      // skip invalid
+    }
+  }
+  return [...hosts];
+}
+
+export function linkedinSlugFromUrl(url: string): string {
+  try {
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    const match = new URL(href).pathname.match(/\/(in|company)\/([^/?#]+)/i);
+    return match?.[2] ?? "";
+  } catch {
+    return "";
+  }
 }

@@ -85,6 +85,17 @@ export function formatLaneStatsSummary(stats: LaneStatEntry[]): string {
   return stats.map(formatLaneStatEntry).join(" · ");
 }
 
+/** User-facing coverage totals for a run: sources reviewed vs. articles featured. */
+export function summarizeRunCoverage(
+  stats: LaneStatEntry[] | null | undefined
+): { reviewed: number; featured: number } {
+  const list = stats ?? [];
+  return {
+    reviewed: list.reduce((sum, s) => sum + (s.raw_count ?? 0), 0),
+    featured: list.reduce((sum, s) => sum + (s.survived_count ?? 0), 0),
+  };
+}
+
 export function logLaneStats(runId: string, stats: LaneStatEntry[]): void {
   console.log(`[run ${runId.slice(0, 8)}] Lane stats: ${formatLaneStatsSummary(stats)}`);
 }

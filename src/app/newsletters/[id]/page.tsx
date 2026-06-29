@@ -6,7 +6,8 @@ import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { TagInput } from "@/components/tag-input";
 import { FREQUENCY_HELPER_TEXT } from "@/lib/constants";
-import type { NewsletterConfig, ProfileFrequency } from "@/types";
+import { summarizeRunCoverage } from "@/lib/lane-stats";
+import type { NewsletterConfig, ProfileFrequency, Run } from "@/types";
 
 export default function EditNewsletterPage() {
   const params = useParams<{ id: string }>();
@@ -14,6 +15,7 @@ export default function EditNewsletterPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [newsletter, setNewsletter] = useState<NewsletterConfig | null>(null);
+  const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -37,9 +39,17 @@ export default function EditNewsletterPage() {
     setLoading(false);
   }, [supabase, params.id]);
 
+  const loadRuns = useCallback(async () => {
+    const res = await fetch(`/api/runs?newsletterId=${params.id}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.runs) setRuns(data.runs as Run[]);
+  }, [params.id]);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadRuns();
+  }, [load, loadRuns]);
 
   const patch = (updates: Partial<NewsletterConfig>) =>
     setNewsletter((n) => (n ? { ...n, ...updates } : n));
@@ -303,6 +313,56 @@ export default function EditNewsletterPage() {
           </button>
         </div>
       </section>
+
+      {runs.length > 0 && (
+        <section className="bg-white border border-gray-200 rounded-xl p-6 mt-8">
+          <h2 className="text-lg font-semibold mb-4">Recent Runs</h2>
+          <div className="space-y-2">
+            {runs.map((run, i) => {
+              const { reviewed, featured } = summarizeRunCoverage(run.lane_stats);
+              const when = run.finished_at ?? run.started_at ?? run.created_at;
+              return (
+                <div key={run.id} className="px-3 py-3 bg-gray-50 rounded-lg text-sm space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-medium text-gray-700">
+                      Run #{runs.length - i}
+                      <span className="text-gray-400 font-normal ml-2">
+                        {when ? new Date(when).toLocaleDateString() : ""}
+                      </span>
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        run.status === "done"
+                          ? "bg-green-100 text-green-700"
+                          : run.status === "failed"
+                            ? "bg-red-100 text-red-700"
+                            : run.status === "running"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {run.status}
+                    </span>
+                  </div>
+                  {run.status === "done" && (
+                    <p className="text-xs text-gray-600">
+                      {reviewed} sources reviewed · {featured} articles featured
+                    </p>
+                  )}
+                  {run.error && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+                        Details
+                      </summary>
+                      <p className="mt-1 text-red-600 break-words">{run.error}</p>
+                    </details>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </main>
   );
 }

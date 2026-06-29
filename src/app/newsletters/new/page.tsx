@@ -224,11 +224,10 @@ export default function NewNewsletterWizard() {
       <div className="flex justify-between mt-6">
         <button
           type="button"
-          onClick={back}
-          disabled={step === 0}
-          className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+          onClick={step === 0 ? () => router.push("/") : back}
+          className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
-          Back
+          {step === 0 ? "Cancel" : "Back"}
         </button>
         {step < STEPS.length - 1 ? (
           <button

@@ -2,18 +2,14 @@ import { runNewsLane } from "@/agents/lanes/news";
 import { runAnalystLane } from "@/agents/lanes/analyst";
 import { runSubstackLane } from "@/agents/lanes/substack";
 import { runMediumLane } from "@/agents/lanes/medium";
-import { runXLane } from "@/agents/lanes/x";
-import { runLinkedInLane } from "@/agents/lanes/linkedin";
 import type { LaneResult, PipelineContext } from "@/types";
 
-/** Canonical six research lanes — order used in stats display */
+/** Canonical research lanes — order used in stats display */
 export const RESEARCH_LANE_IDS = [
   "news",
   "analyst",
   "substack",
   "medium",
-  "x",
-  "linkedin",
 ] as const;
 
 export type ResearchLaneId = (typeof RESEARCH_LANE_IDS)[number];
@@ -23,8 +19,6 @@ export const RESEARCH_LANE_LABELS: Record<ResearchLaneId, string> = {
   analyst: "Analyst",
   substack: "Substack",
   medium: "Medium",
-  x: "X",
-  linkedin: "LinkedIn",
 };
 
 type LaneRunner = (ctx: PipelineContext) => Promise<LaneResult>;
@@ -34,7 +28,7 @@ export interface RegisteredLane {
   label: string;
   implemented: true;
   wired: true;
-  source: "exa" | "apify";
+  source: "exa";
   runner: LaneRunner;
 }
 
@@ -71,21 +65,5 @@ export const LANE_REGISTRY: RegisteredLane[] = [
     wired: true,
     source: "exa",
     runner: runMediumLane,
-  },
-  {
-    id: "x",
-    label: "X",
-    implemented: true,
-    wired: true,
-    source: "apify",
-    runner: runXLane,
-  },
-  {
-    id: "linkedin",
-    label: "LinkedIn",
-    implemented: true,
-    wired: true,
-    source: "apify",
-    runner: runLinkedInLane,
   },
 ];

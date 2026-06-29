@@ -73,10 +73,13 @@ export async function upsertProfile(
   return data as Profile;
 }
 
-export async function createRun(): Promise<Run> {
+export async function createRun(
+  newsletterId: string,
+  userId: string
+): Promise<Run> {
   const { data, error } = await getSupabase()
     .from("runs")
-    .insert({ status: "queued" })
+    .insert({ status: "queued", newsletter_id: newsletterId, user_id: userId })
     .select()
     .single();
   if (error) throw error;
@@ -147,17 +150,16 @@ export async function saveNewsletter(
   if (error) throw error;
 }
 
-export async function getLastSuccessfulRunDate(): Promise<Date | null> {
+export async function getNewsletterContentByRunId(
+  runId: string
+): Promise<{ html: string } | null> {
   const { data, error } = await getSupabase()
-    .from("runs")
-    .select("finished_at")
-    .eq("status", "done")
-    .order("finished_at", { ascending: false })
-    .limit(1)
-    .single();
-  if (error && error.code !== "PGRST116") throw error;
-  if (!data?.finished_at) return null;
-  return new Date(data.finished_at);
+    .from("newsletters")
+    .select("html")
+    .eq("run_id", runId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as { html: string } | null;
 }
 
 export async function getRun(runId: string): Promise<Run | null> {
@@ -170,14 +172,38 @@ export async function getRun(runId: string): Promise<Run | null> {
   return data as Run | null;
 }
 
-export async function getRecentRuns(limit = 10): Promise<Run[]> {
+export async function getRecentRuns(
+  newsletterId: string,
+  limit = 10
+): Promise<Run[]> {
   const { data, error } = await getSupabase()
     .from("runs")
     .select("*")
+    .eq("newsletter_id", newsletterId)
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw error;
   return (data ?? []) as Run[];
+}
+
+/** Latest run per newsletter, for the dashboard cards. */
+export async function getLatestRunsByNewsletter(
+  newsletterIds: string[]
+): Promise<Map<string, Run>> {
+  if (newsletterIds.length === 0) return new Map();
+  const { data, error } = await getSupabase()
+    .from("runs")
+    .select("*")
+    .in("newsletter_id", newsletterIds)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  const latest = new Map<string, Run>();
+  for (const run of (data ?? []) as Run[]) {
+    if (run.newsletter_id && !latest.has(run.newsletter_id)) {
+      latest.set(run.newsletter_id, run);
+    }
+  }
+  return latest;
 }
 
 export async function isRunAlreadySent(runId: string): Promise<boolean> {

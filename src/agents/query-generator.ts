@@ -76,10 +76,9 @@ function fallbackQuery(
   cutoffIso: string
 ): ExaQueryPayload {
   const role = input.profile.role || "professional";
-  const company = input.profile.company || "their organization";
 
   const base: ExaQueryPayload = {
-    query: `In-depth analysis of ${input.topic} relevant to a ${role} at ${company}, covering recent developments and strategic implications`,
+    query: `In-depth analysis of ${input.topic} relevant to a ${role}, covering recent developments and strategic implications`,
     numResults: EXA_NUM_RESULTS_PER_QUERY,
     startPublishedDate: cutoffIso,
   };

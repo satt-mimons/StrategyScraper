@@ -1,11 +1,36 @@
 import { NextResponse } from "next/server";
 import { getRecentRuns, updateRun } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/server";
 
 const STALE_RUN_MS = 10 * 60 * 1000;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const newsletterId = searchParams.get("newsletterId");
+  if (!newsletterId) {
+    return NextResponse.json({ error: "newsletterId required" }, { status: 400 });
+  }
+
   try {
-    const runs = await getRecentRuns(20);
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+    }
+
+    const { data: newsletter } = await supabase
+      .from("newsletter_configs")
+      .select("id")
+      .eq("id", newsletterId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!newsletter) {
+      return NextResponse.json({ error: "Newsletter not found." }, { status: 404 });
+    }
+
+    const runs = await getRecentRuns(newsletterId, 20);
 
     const now = Date.now();
     for (const run of runs) {
@@ -16,11 +41,11 @@ export async function GET() {
           status: "failed",
           finished_at: new Date().toISOString(),
           error:
-            "Run timed out — likely stuck on Apify (X/LinkedIn) or LLM synthesis. Restart dev server and try again.",
+            "Run timed out — likely stuck on a slow research lane or LLM synthesis. Restart dev server and try again.",
         });
         run.status = "failed";
         run.error =
-          "Run timed out — likely stuck on Apify (X/LinkedIn) or LLM synthesis. Restart dev server and try again.";
+          "Run timed out — likely stuck on a slow research lane or LLM synthesis. Restart dev server and try again.";
         run.finished_at = new Date().toISOString();
       }
     }

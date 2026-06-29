@@ -25,18 +25,17 @@ export function buildTemplateExaQueries(
 ): ExaQueryPayload[] {
   const { profile, topic, lane, recencyCutoff } = options;
   const role = profile.role || "professional";
-  const company = profile.company || "their organization";
   const cutoff = recencyCutoff.toISOString();
   const numResults = EXA_NUM_RESULTS_PER_QUERY;
 
   const queries: ExaQueryPayload[] = [
     {
-      query: `Recent in-depth analysis of ${topic} and its strategic implications for a ${role} at ${company}`,
+      query: `Recent in-depth analysis of ${topic} and its strategic implications for a ${role}`,
       numResults,
       startPublishedDate: cutoff,
     },
     {
-      query: `Industry commentary and emerging trends in ${topic} relevant to ${company} corporate strategy`,
+      query: `Industry commentary and emerging trends in ${topic} and what they mean for corporate strategy`,
       numResults,
       startPublishedDate: cutoff,
     },
@@ -88,11 +87,10 @@ export function buildSubstackQueries(
   const cutoff = recencyCutoff.toISOString();
   const numResults = EXA_NUM_RESULTS_PER_QUERY;
   const role = profile.role || "professional";
-  const company = profile.company || "their organization";
 
   // Pass 1: substack.com hosted publications
   const domainQuery: ExaQueryPayload = {
-    query: `Recent Substack newsletter analysis of ${topic} and strategic implications for a ${role} at ${company}`,
+    query: `Recent Substack newsletter analysis of ${topic} and its strategic implications for a ${role}`,
     numResults,
     startPublishedDate: cutoff,
     includeDomains: ["substack.com"],
@@ -116,11 +114,10 @@ export function buildMediumQueries(
   const cutoff = recencyCutoff.toISOString();
   const numResults = EXA_NUM_RESULTS_PER_QUERY;
   const role = profile.role || "professional";
-  const company = profile.company || "their organization";
 
   // Pass 1: medium.com domain-scoped
   const domainQuery: ExaQueryPayload = {
-    query: `Recent Medium article analysis of ${topic} and strategic implications for a ${role} at ${company}`,
+    query: `Recent Medium article analysis of ${topic} and its strategic implications for a ${role}`,
     numResults,
     startPublishedDate: cutoff,
     includeDomains: ["medium.com"],
@@ -128,7 +125,7 @@ export function buildMediumQueries(
 
   // Pass 2: open query (syndicated / cross-posted Medium content elsewhere)
   const openQuery: ExaQueryPayload = {
-    query: `Industry commentary and emerging trends in ${topic} relevant to ${company} corporate strategy`,
+    query: `Industry commentary and emerging trends in ${topic} and what they mean for corporate strategy`,
     numResults,
     startPublishedDate: cutoff,
   };
@@ -144,18 +141,17 @@ export function buildAnalystQueries(
   const cutoff = recencyCutoff.toISOString();
   const numResults = EXA_NUM_RESULTS_PER_QUERY;
   const role = profile.role || "professional";
-  const company = profile.company || "their organization";
 
   const queries: ExaQueryPayload[] = [
     // Pass 1: news coverage of analyst / research output
     {
-      query: `Recent analyst and research commentary on ${topic} and strategic implications for a ${role} at ${company}`,
+      query: `Recent analyst and research commentary on ${topic} and its strategic implications for a ${role}`,
       category: "news",
       numResults,
       startPublishedDate: cutoff,
     },
     {
-      query: `Industry research outlook and expert analysis of ${topic} relevant to ${company} corporate strategy`,
+      query: `Industry research outlook and expert analysis of ${topic} and what it means for corporate strategy`,
       category: "news",
       numResults,
       startPublishedDate: cutoff,
@@ -177,7 +173,7 @@ export function buildAnalystQueries(
   if (firmDomains.length > 0) {
     // Pass 3: primary thought leadership on firm-owned domains (open neural, no category)
     queries.push({
-      query: `Public insights, perspectives, blog posts, and thought leadership on ${topic} from leading strategy and research firms, relevant to a ${role} at ${company}`,
+      query: `Public insights, perspectives, blog posts, and thought leadership on ${topic} from leading strategy and research firms, relevant to a ${role}`,
       numResults,
       startPublishedDate: cutoff,
       includeDomains: firmDomains,
@@ -187,24 +183,3 @@ export function buildAnalystQueries(
   return queries;
 }
 
-export function buildLinkedInCuratedQueries(
-  profile: Profile,
-  topic: string,
-  recencyCutoff: Date
-): ExaQueryPayload[] {
-  const urls = profile.linkedin_urls ?? [];
-  if (urls.length === 0) return [];
-
-  const cutoff = recencyCutoff.toISOString();
-  const numResults = EXA_NUM_RESULTS_PER_QUERY;
-
-  return urls.slice(0, 5).map((url) => {
-    const slug = url.match(/\/(in|company)\/([^/?#]+)/i)?.[2] ?? url;
-    return {
-      query: `Recent LinkedIn posts from ${slug} about ${topic} and enterprise strategy`,
-      numResults,
-      startPublishedDate: cutoff,
-      includeDomains: ["linkedin.com"],
-    };
-  });
-}

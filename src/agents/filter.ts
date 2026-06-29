@@ -81,6 +81,10 @@ export async function selectStories(
     if (ra !== rb) return ra - rb;
     return b.source_count - a.source_count;
   });
+  // Stamp global relevance priority (0 = most relevant) for downstream length budgeting.
+  ordered.forEach((c, i) => {
+    c.priority = i;
+  });
 
   // Bucket by topic, preserving the global relevance order within each topic.
   const byTopicClusters = new Map<string, ClusteredStory[]>();
@@ -148,8 +152,12 @@ async function rankByRelevance(
 You receive DISTINCT STORIES (already deduplicated/clustered). Rank ALL of them from most to least relevant.
 
 Rank by, in order:
-1. Relevance to the user's topics.
-2. Strategic relevance to ${company} — market-structure shifts, pricing-model changes, competitor moves, category dynamics, and implications for a ${profile.role || "strategy professional"}. A story need NOT name ${company} to qualify. DOWN-RANK vendor-announcement / product-marketing content (partnership press releases, product-reframe posts) unless it materially changes the competitive picture.
+1. Relevance to the user's TOPICS/THEMES — this is the dominant signal and outweighs everything below.
+2. Broad relevance to the user's category/space: market-structure shifts, pricing-model changes, competitor moves, and category dynamics that matter to ANY strategy leader operating in ${company}'s space. Use ${company} only as context for the category — NOT as a target.
+
+HARD RULE — push to the BOTTOM any story that is primarily ABOUT ${company} itself or its specific products/announcements (vendor PR, product launches, ${company} earnings or stock moves, partnership press releases), UNLESS ${company} appears only as one illustrative example of a broader theme.
+
+LITMUS TEST for every story: "Would a strategy leader at a direct COMPETITOR of ${company} find this useful for understanding the theme?" If yes, it is theme-relevant — rank it up. If it is only useful because it is about ${company}, rank it near the bottom.
 
 Do NOT rank by lane or source type. Do NOT drop any story — every cluster_id must appear exactly once.
 

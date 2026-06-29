@@ -5,6 +5,51 @@ Willingness to earnestly steelman an absurd thing before puncturing it.
 Occasional running bits and tangential footnotes. Short, punchy closers.
 Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced.`;
 
+export const FREQUENCY_HELPER_TEXT: Record<string, string> = {
+  daily: "Daily pulls from the past 24 hours of news.",
+  weekly: "Weekly pulls from the past 7 days of news.",
+  biweekly: "Biweekly pulls from the past 14 days of news.",
+  monthly: "Monthly pulls from the past 30 days of news.",
+};
+
+/** Lightweight keyword → topic suggestions for the topics step, keyed by role text. */
+const ROLE_TOPIC_SUGGESTIONS: { keywords: string[]; topics: string[] }[] = [
+  {
+    keywords: ["strategy", "corp dev", "corporate development"],
+    topics: ["M&A activity", "competitive positioning", "market entry"],
+  },
+  {
+    keywords: ["product"],
+    topics: ["product launches", "pricing changes", "user research trends"],
+  },
+  {
+    keywords: ["marketing", "growth"],
+    topics: ["brand campaigns", "channel performance", "consumer trends"],
+  },
+  {
+    keywords: ["engineering", "cto", "technical"],
+    topics: ["infrastructure trends", "developer tooling", "AI model releases"],
+  },
+  {
+    keywords: ["sales", "revenue", "rev ops"],
+    topics: ["enterprise deal trends", "pricing benchmarks", "sales tooling"],
+  },
+  {
+    keywords: ["finance", "investor", "vc", "investment"],
+    topics: ["funding rounds", "valuation trends", "earnings results"],
+  },
+];
+
+const GENERIC_TOPIC_SUGGESTIONS = ["industry trends", "competitor moves", "regulatory news"];
+
+export function suggestTopicsForRole(role: string): string[] {
+  const lower = role.toLowerCase();
+  const matched = ROLE_TOPIC_SUGGESTIONS.find((entry) =>
+    entry.keywords.some((kw) => lower.includes(kw))
+  );
+  return matched?.topics ?? GENERIC_TOPIC_SUGGESTIONS;
+}
+
 export const DEFAULT_PREFERRED_PUBS = [
   "semafor.com",
   "theinformation.com",
@@ -68,14 +113,8 @@ export const LANE_STRENGTH = {
   medium: "strongest discovery lane",
   news: "solid",
   analyst: "solid",
-  x: "medium, noisy — requires aggressive filtering",
-  linkedin: "weakest, best-effort — may return thin results",
 } as const;
 
-export const RECENCY_FALLBACK_DAYS = 7;
-/** Escalation ladder cap (~30d) */
-export const ESCALATION_MAX_LOOKBACK_DAYS = 30;
-export const LANE_ESCALATION_MAX_RETRIES = 2;
 export const SENT_URL_DEDUP_DAYS = 30;
 
 /** Target raw candidates per lane (pool ~50+ across 6 lanes) */
@@ -84,15 +123,34 @@ export const LANE_FETCH_TARGET_MIN: Record<string, number> = {
   analyst: 8,
   substack: 10,
   medium: 8,
-  x: 10,
-  linkedin: 8,
 };
 
 /** Domains excluded from filter pool (see source-quality.ts) */
 export const SOURCE_DENYLIST_SEED = ["investing.com"];
 
 export const DEFAULT_PROFILE_FREQUENCY = "weekly" as const;
-export const MAX_WORD_COUNT = 3000;
+export const MAX_WORD_COUNT = 2000;
+
+/**
+ * Output-token ceiling for the design stage's markdown→HTML conversion. This must be much
+ * larger than the markdown's token count: the design agent emits table-based layout with
+ * inline styles on every element, which inflates output 4–6×. An 8K ceiling truncated the
+ * bottom of the newsletter (inline links + the Further Reading "Must read" list). Sonnet
+ * supports well beyond this, so we give generous headroom and detect truncation on top.
+ */
+export const DESIGN_MAX_OUTPUT_TOKENS = 16000;
+
+/**
+ * Length budgeting (reporter). The reporter spends a word budget across stories in
+ * relevance-priority order, giving top stories full depth and dropping the tail to
+ * Further Reading — so the newsletter finishes within budget and the styled HTML stays
+ * under the design stage's output-token ceiling.
+ */
+export const REPORTER_TLDR_WORD_RESERVE = 200;
+export const FURTHER_READING_WORD_RESERVE = 150;
+/** Per-story word targets the budgeter assigns by priority. */
+export const STORY_WORDS_FULL = 180;
+export const STORY_WORDS_BRIEF = 80;
 export const TLDR_BULLET_MIN = 5;
 export const TLDR_BULLET_MAX = 7;
 
@@ -114,6 +172,9 @@ export const PER_TOPIC_STORY_CAP = 4;
 export const PER_TOPIC_STORY_MIN = 2;
 export const PER_TOPIC_STORY_TARGET = 3;
 
+/** Further Reading: max "Must read" links shown per topic (credibility-ranked). */
+export const FURTHER_READING_PER_TOPIC = 3;
+
 /** Cost cap per run in USD */
 export const RUN_COST_CAP_USD = 5.0;
 export const RUN_COST_WARN_USD = 3.0;
@@ -121,8 +182,6 @@ export const RUN_COST_WARN_USD = 3.0;
 /** Pricing estimates (verify against current docs) */
 export const PRICING = {
   exaPerSearch: 0.005,
-  apifyXPer1k: 0.35,
-  apifyLinkedInPer1k: 5.0,
   opusInputPer1M: 15.0,
   opusOutputPer1M: 75.0,
   sonnetInputPer1M: 3.0,
@@ -131,39 +190,22 @@ export const PRICING = {
 
 export const LANE_TIMEOUT_MS = 90_000;
 export const PIPELINE_TIMEOUT_MS = 480_000;
-export const APIFY_POLL_INTERVAL_MS = 3_000;
-export const APIFY_DEFAULT_TIMEOUT_MS = 45_000;
 
-/** Minimum likes+reactions (X) / reactions (LinkedIn) for social posts */
-export const SOCIAL_MIN_ENGAGEMENT = 500;
-export const X_MIN_ENGAGEMENT = SOCIAL_MIN_ENGAGEMENT;
-export const LINKEDIN_MIN_ENGAGEMENT = SOCIAL_MIN_ENGAGEMENT;
-export const X_HIGH_FOLLOWER_THRESHOLD = 5_000;
-export const X_MAX_RESULTS_PER_TOPIC = 20;
-export const X_APIFY_MAX_ITEMS = 100;
-/** Run a Latest-sort pass when Top returns fewer than this many raw tweets */
-export const X_LATEST_FALLBACK_MIN = 5;
 
-/** LinkedIn Apify */
-export const LINKEDIN_MAX_POSTS_PER_QUERY = 25;
-export const LINKEDIN_LATEST_FALLBACK_MIN = 3;
 
 /** Exa numResults per query variation (2–3 queries × ≤25 for volume) */
 export const EXA_NUM_RESULTS_PER_QUERY = 25;
 /** @deprecated use EXA_NUM_RESULTS_PER_QUERY */
 export const EXA_NUM_RESULTS = EXA_NUM_RESULTS_PER_QUERY;
 
-/** Apify actor IDs */
-export const APIFY_X_ACTOR = "apidojo/tweet-scraper";
-export const APIFY_LINKEDIN_ACTOR = "curious_coder/linkedin-post-search-scraper";
 
 export const QUERY_GENERATOR_PROMPT = `You generate Exa search queries for a newsletter research agent.
 Input: user profile (company, role), one topic, the lane
 (news / analyst / substack / medium), the lane's domain list, and a recency cutoff date.
 
 Output 2–3 query objects as a JSON array. Rules:
-- Write each \`query\` as a descriptive sentence describing the ideal article to find — never a keyword string. Vary the angle across the 2–3 (the trend; a named player; the implication).
-- Frame every query through the lens of the user's role and company — what matters to a {role} at {company}.
+- Write each \`query\` as a descriptive sentence describing the ideal article to find — never a keyword string. Vary the angle across the 2–3 (the trend; a representative example or player in the space; the implication).
+- Center each query on the TOPIC/theme. Frame it for what matters to a {role} working in the same category as {company} — but do NOT put "{company}" in the query text and do NOT target articles specifically about {company} or its products. {company} is context for relevance, never a search target. Prioritize theme relevance over company relevance.
 - Use category:"news" for the news and analyst lanes; omit category for substack/medium.
 - Always set numResults, the provided includeDomains (when applicable), startPublishedDate = recency cutoff, and contents:{ highlights:true }.
 - For analyst lane pass 1 (news coverage) and pass 2 (firm-name in query text), use category:"news". For pass 3 (primary firm insights on owned domains), omit category and set includeDomains from the analyst firm watchlist.

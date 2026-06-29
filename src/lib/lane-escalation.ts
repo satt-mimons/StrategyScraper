@@ -1,14 +1,10 @@
 import { generateExaQueries } from "@/agents/query-generator";
-import {
-  LANE_ESCALATION_MAX_RETRIES,
-  LANE_FETCH_TARGET_MIN,
-} from "@/lib/constants";
+import { LANE_FETCH_TARGET_MIN } from "@/lib/constants";
 import { runExaQueriesParallel } from "@/agents/lanes/exa-lane-utils";
 import {
   checkCostProjection,
   type CostCheckResult,
 } from "@/lib/anthropic";
-import { widenCutoff } from "@/lib/recency";
 import type { ExaSearchResult } from "@/lib/exa";
 import type { ExaQueryPayload, PipelineContext } from "@/types";
 import type { RecencyLane } from "@/lib/recency";
@@ -63,21 +59,9 @@ export async function fetchExaForTopicWithEscalation(
     }
   };
 
-  const cutoffs: Date[] = [baseCutoff];
-  for (let i = 1; i <= LANE_ESCALATION_MAX_RETRIES; i++) {
-    const mult = i === 1 ? 2 : 4;
-    cutoffs.push(widenCutoff(baseCutoff, mult as 2 | 4));
-  }
-
-  for (let i = 0; i < cutoffs.length; i++) {
-    if (seen.size >= target) break;
-    if (ctx.costTracker.costCapHit) break;
-
-    const batch = await fetchExaAtCutoff(
-      ctx,
-      buildQueries(topic, cutoffs[i])
-    );
-    merge(batch);
+  // Strict recency: a single pass at the frequency cutoff — no date widening.
+  if (seen.size < target && !ctx.costTracker.costCapHit) {
+    merge(await fetchExaAtCutoff(ctx, buildQueries(topic, baseCutoff)));
   }
 
   if (
@@ -99,7 +83,7 @@ export async function fetchExaForTopicWithEscalation(
             profile: ctx.profile,
             topic,
             lane: exaLane,
-            recencyCutoff: cutoffs[cutoffs.length - 1],
+            recencyCutoff: baseCutoff,
             includeDomains: queryGenOptions?.includeDomains,
             includeText: queryGenOptions?.includeText,
           },

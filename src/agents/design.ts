@@ -1,52 +1,41 @@
 import { callLLM } from "@/lib/anthropic";
+import { DESIGN_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { extractMarkdownLinks } from "@/lib/utils";
 import type { BrandOverrides, CostTracker, Profile } from "@/types";
 
-const BRAND_PALETTE: Record<string, { primary: string; accent: string }> = {
-  google: { primary: "#4285F4", accent: "#EA4335" },
-  servicenow: { primary: "#81B5A1", accent: "#293E40" },
-  microsoft: { primary: "#0078D4", accent: "#FFB900" },
-  apple: { primary: "#1D1D1F", accent: "#0066CC" },
-  meta: { primary: "#0866FF", accent: "#A259FF" },
-  amazon: { primary: "#FF9900", accent: "#232F3E" },
-  salesforce: { primary: "#00A1E0", accent: "#032D60" },
-};
+/**
+ * Neutral fallback palette — company-agnostic. Used only when the user supplied no brand
+ * colors AND the design LLM is unavailable (the LLM-failure fallback path).
+ */
+const DEFAULT_PRIMARY_COLOR = "#1a1a2e";
+const DEFAULT_ACCENT_COLOR = "#e94560";
 
 export interface BrandIdentity {
   primaryColor: string;
   accentColor: string;
   logoUrl?: string;
   companyName: string;
+  /** True when the user supplied explicit brand colors (vs. the neutral default). */
+  hasCustomColors: boolean;
 }
 
+/**
+ * Synchronous brand identity. No hardcoded company palettes: uses the user's brand
+ * overrides when present, otherwise a neutral default. Brand-evocative colors for an
+ * arbitrary company are inferred dynamically by the design LLM (see runDesignAgent),
+ * so this works for any company without a lookup table.
+ */
 export function inferBrand(profile: Profile): BrandIdentity {
-  const overrides = profile.brand_overrides as BrandOverrides;
-
-  if (overrides.primary_color && overrides.accent_color) {
-    return {
-      primaryColor: overrides.primary_color,
-      accentColor: overrides.accent_color,
-      logoUrl: overrides.logo_url,
-      companyName: profile.company || "Newsletter",
-    };
-  }
-
-  const key = (profile.company || "").toLowerCase().replace(/\s+/g, "");
-  const palette = BRAND_PALETTE[key];
-
-  if (palette) {
-    return {
-      primaryColor: palette.primary,
-      accentColor: palette.accent,
-      logoUrl: overrides.logo_url,
-      companyName: profile.company,
-    };
-  }
-
+  const overrides = (profile.brand_overrides ?? {}) as BrandOverrides;
+  const hasCustomColors = Boolean(
+    overrides.primary_color && overrides.accent_color
+  );
   return {
-    primaryColor: "#1a1a2e",
-    accentColor: "#e94560",
+    primaryColor: overrides.primary_color || DEFAULT_PRIMARY_COLOR,
+    accentColor: overrides.accent_color || DEFAULT_ACCENT_COLOR,
     logoUrl: overrides.logo_url,
     companyName: profile.company || "Newsletter",
+    hasCustomColors,
   };
 }
 
@@ -57,15 +46,19 @@ export async function runDesignAgent(
 ): Promise<string> {
   const brand = inferBrand(profile);
 
+  const paletteSpec = brand.hasCustomColors
+    ? `- Primary color: ${brand.primaryColor}\n- Accent color: ${brand.accentColor}`
+    : `- Infer a tasteful brand palette evocative of "${brand.companyName}" from its known visual identity, expressed as a primary and an accent hex color (e.g. a media company's signature blue, a retailer's signature orange). If the company is unrecognizable, choose a clean, professional palette. Do NOT default to generic colors when the company has a recognizable brand.`;
+
   const system = `You are a design agent generating email-client-safe responsive HTML for a newsletter.
 
 Brand identity:
 - Company: ${brand.companyName}
-- Primary color: ${brand.primaryColor}
-- Accent color: ${brand.accentColor}
+${paletteSpec}
 ${brand.logoUrl ? `- Logo URL: ${brand.logoUrl}` : "- Generate a simple text wordmark for the company name"}
 
 Requirements:
+- Apply the brand palette (provided or inferred above) consistently throughout
 - Inline styles only (no external CSS)
 - Table-based layout for email client compatibility
 - Neutral background, readable on mobile
@@ -79,8 +72,48 @@ Requirements:
 
 Return HTML only. No markdown fences. No preamble.`;
 
-  const html = await callLLM("sonnet", system, markdown, tracker, 8192);
-  return stripCodeFences(html);
+  const html = stripCodeFences(
+    await callLLM("sonnet", system, markdown, tracker, DESIGN_MAX_OUTPUT_TOKENS, {
+      throwOnTruncation: true,
+    })
+  );
+
+  // Guardrail: the markdown→HTML step is the last place links + the bottom-of-letter
+  // Further Reading list can be silently dropped. If the LLM lost either, throw so the
+  // caller falls back to the deterministic converter (markdownToPlainHtml), which preserves
+  // every link and the full document structure.
+  assertConversionFidelity(markdown, html);
+
+  return html;
+}
+
+/** A heading is "present" in the HTML if its text survives the markdown→HTML conversion. */
+function htmlContainsHeading(html: string, headingText: string): boolean {
+  return html.toLowerCase().includes(headingText.toLowerCase());
+}
+
+/**
+ * Verify the rendered HTML preserved the markdown's links and its trailing Further Reading
+ * section. Throws on any loss — both are hard formatting guardrails for the newsletter.
+ */
+function assertConversionFidelity(markdown: string, html: string): void {
+  // URLs with query strings get their "&" HTML-encoded as "&amp;" inside href attributes;
+  // decode that so encoding alone isn't mistaken for a dropped link.
+  const decodedHtml = html.replace(/&amp;/g, "&");
+  const markdownLinks = new Set(extractMarkdownLinks(markdown));
+  const missing = [...markdownLinks].filter((url) => !decodedHtml.includes(url));
+  if (missing.length > 0) {
+    throw new Error(
+      `Design HTML dropped ${missing.length}/${markdownLinks.size} source links during conversion`
+    );
+  }
+
+  if (
+    markdown.includes("## Further Reading") &&
+    !htmlContainsHeading(html, "Further Reading")
+  ) {
+    throw new Error("Design HTML dropped the Further Reading section during conversion");
+  }
 }
 
 export function markdownToPlainHtml(markdown: string, brand: BrandIdentity): string {

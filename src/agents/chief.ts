@@ -27,7 +27,7 @@ import {
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
 import { isDenylisted } from "@/lib/source-quality";
-import { buildLaneRecencyCutoffs } from "@/lib/recency";
+import { buildLaneRecencyCutoffs, isOlderThanCutoff } from "@/lib/recency";
 import {
   loadSentUrlSet,
   countWordsExcludingLinks,
@@ -35,7 +35,7 @@ import {
   withTimeout,
 } from "@/lib/utils";
 import { LANE_TIMEOUT_MS, PIPELINE_TIMEOUT_MS } from "@/lib/constants";
-import type { Candidate, LaneResult, PipelineContext, Profile } from "@/types";
+import type { Candidate, LaneResult, PipelineContext, PipelineStage, Profile } from "@/types";
 
 export async function runPipeline(
   runId: string,
@@ -64,8 +64,13 @@ async function runPipelineInner(
     costTracker,
   };
 
+  async function setStage(stage: PipelineStage): Promise<void> {
+    await updateRun(runId, { stage });
+  }
+
   await updateRun(runId, {
     status: "running",
+    stage: "research",
     started_at: new Date().toISOString(),
   });
 
@@ -159,6 +164,8 @@ async function runPipelineInner(
       throw new Error("All research lanes failed — no candidates collected");
     }
 
+    await setStage("filter");
+
     const candidates =
       allCandidates.length > 0
         ? allCandidates
@@ -168,9 +175,16 @@ async function runPipelineInner(
     // cluster the WHOLE pool into distinct stories (dedup by event AND by core argument),
     // THEN select a topic-balanced set. Clustering before selection means selection counts
     // distinct stories, not raw articles.
+    // Strict recency cutoff (uniform across lanes) — drop anything dated older than the
+    // selected frequency window before it can reach clustering/selection.
+    const strictCutoff = laneRecencyCutoffs.news;
     const pool = dedupeByUrl(
       candidates.filter(
-        (c) => c.url && !sentUrls.has(c.url) && !isDenylisted(c.url)
+        (c) =>
+          c.url &&
+          !sentUrls.has(c.url) &&
+          !isDenylisted(c.url) &&
+          !isOlderThanCutoff(c.published_date, strictCutoff)
       )
     );
 
@@ -212,6 +226,8 @@ async function runPipelineInner(
       `[run ${runId.slice(0, 8)}] Clustered ${pool.length} sources → ${allClusters.length} distinct stories → selected ${clusteredStories.length} (${allClusterUrls(clusteredStories).length} URLs)`
     );
 
+    await setStage("write");
+
     const draft = await runReporterAgent(
       clusteredStories,
       normalizedProfile,
@@ -224,6 +240,8 @@ async function runPipelineInner(
       costTracker
     );
 
+    await setStage("design");
+
     let html: string;
     try {
       html = await runDesignAgent(polished, normalizedProfile, costTracker);
@@ -231,6 +249,8 @@ async function runPipelineInner(
       const brand = inferBrand(normalizedProfile);
       html = markdownToPlainHtml(polished, brand);
     }
+
+    await setStage("deliver");
 
     const wordCount = countWordsExcludingLinks(polished);
     const deliveryRecipients = getDeliveryRecipients(normalizedProfile.recipients);

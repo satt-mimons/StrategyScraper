@@ -3,11 +3,11 @@ export type Lane =
   | "analyst"
   | "substack"
   | "substack-open"
-  | "medium"
-  | "x"
-  | "linkedin";
+  | "medium";
 
 export type RunStatus = "queued" | "running" | "done" | "failed";
+
+export type PipelineStage = "research" | "filter" | "write" | "design" | "deliver";
 
 export interface BrandOverrides {
   primary_color?: string;
@@ -40,9 +40,35 @@ export interface Profile {
   updated_at: string;
 }
 
+/** A user's saved newsletter configuration (supports multiple per user) */
+export interface NewsletterConfig {
+  id: string;
+  user_id: string;
+  name: string;
+  company: string;
+  role: string;
+  frequency: ProfileFrequency;
+  topics: string[];
+  tone_preset: string;
+  tone_custom: string;
+  recipients: string[];
+  reply_to: string;
+  preferred_publications: string[];
+  substack_urls: string[];
+  linkedin_urls: string[];
+  primary_color: string;
+  accent_color: string;
+  logo_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Run {
   id: string;
+  newsletter_id: string | null;
+  user_id: string | null;
   status: RunStatus;
+  stage: PipelineStage;
   started_at: string | null;
   finished_at: string | null;
   cost_estimate_usd: number;
@@ -54,12 +80,8 @@ export interface Run {
 }
 
 export interface LaneStatEntry {
-  lane: "news" | "analyst" | "substack" | "medium" | "x" | "linkedin";
+  lane: "news" | "analyst" | "substack" | "medium";
   raw_count: number;
-  /** X lane: Apify results before lane quality filter */
-  pre_filter_count?: number | null;
-  /** X lane: results after lane quality filter (before final dedupe cap) */
-  post_filter_count?: number | null;
   survived_count: number;
   error: string | null;
 }
@@ -109,6 +131,8 @@ export interface ClusteredStory {
   /** Primary URL for inline citation in prose */
   lead_url: string;
   cluster_note?: string;
+  /** Global relevance priority (0 = most relevant); set by the filter ranker. */
+  priority?: number;
 }
 
 export interface SelectedStory {
@@ -139,7 +163,6 @@ export interface ExaQueryPayload {
 
 export interface CostTracker {
   exaSearches: number;
-  apifyRuns: number;
   opusInputTokens: number;
   opusOutputTokens: number;
   sonnetInputTokens: number;
@@ -155,10 +178,6 @@ export interface LaneResult {
   candidates: Omit<Candidate, "run_id">[];
   success: boolean;
   error?: string;
-  /** Apify items before X lane quality filter */
-  pre_filter_count?: number;
-  /** Items passing X lane quality filter */
-  post_filter_count?: number;
 }
 
 import type { RecencyLane } from "@/lib/recency";

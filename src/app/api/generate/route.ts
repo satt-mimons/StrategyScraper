@@ -8,16 +8,9 @@ import {
   DEFAULT_ANALYST_FIRM_DOMAINS,
   DEFAULT_ANALYST_FIRMS,
   DEFAULT_TONE_SPEC,
-  TONE_PRESETS,
 } from "@/lib/constants";
 
 export const maxDuration = 300;
-
-function resolveToneSpec(newsletter: NewsletterConfig): string {
-  if (newsletter.tone_custom) return newsletter.tone_custom;
-  const preset = TONE_PRESETS.find((p) => p.key === newsletter.tone_preset);
-  return preset?.description ?? DEFAULT_TONE_SPEC;
-}
 
 function newsletterToProfile(newsletter: NewsletterConfig): Profile {
   return {
@@ -25,7 +18,8 @@ function newsletterToProfile(newsletter: NewsletterConfig): Profile {
     company: newsletter.company,
     role: newsletter.role,
     topics: newsletter.topics,
-    tone_spec: resolveToneSpec(newsletter),
+    // Tone is a single fixed house style (see DEFAULT_TONE_SPEC) — not user-configurable.
+    tone_spec: DEFAULT_TONE_SPEC,
     preferred_pubs: newsletter.preferred_publications,
     analyst_firms: DEFAULT_ANALYST_FIRMS,
     analyst_firm_domains: DEFAULT_ANALYST_FIRM_DOMAINS,

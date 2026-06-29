@@ -65,6 +65,13 @@ export default function GenerationProgressPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.runId, run?.status]);
 
+  // On completion, take the user straight to the preview (replace so Back skips this page).
+  useEffect(() => {
+    if (run?.status === "done") {
+      router.replace(`/newsletters/${params.id}/runs/${params.runId}/preview`);
+    }
+  }, [run?.status, router, params.id, params.runId]);
+
   const tryAgain = async () => {
     setRetrying(true);
     try {
@@ -143,17 +150,7 @@ export default function GenerationProgressPage() {
       </ol>
 
       {run.status === "done" && (
-        <div className="flex flex-col items-center gap-3">
-          <Link
-            href={`/newsletters/${params.id}/runs/${params.runId}/preview`}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-          >
-            Preview Newsletter
-          </Link>
-          <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-            Back to Dashboard
-          </Link>
-        </div>
+        <p className="text-sm text-gray-500 text-center">Opening preview…</p>
       )}
 
       {run.status === "failed" && (

@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { TagInput } from "@/components/tag-input";
 import {
   DEFAULT_PROFILE_FREQUENCY,
   FREQUENCY_HELPER_TEXT,
-  TONE_PRESETS,
   suggestTopicsForRole,
 } from "@/lib/constants";
 import type { ProfileFrequency } from "@/types";
@@ -15,7 +14,7 @@ import type { ProfileFrequency } from "@/types";
 const STEPS = [
   { title: "Context" },
   { title: "Topics" },
-  { title: "Tone & Delivery" },
+  { title: "Delivery" },
 ];
 
 interface WizardState {
@@ -23,16 +22,8 @@ interface WizardState {
   role: string;
   frequency: ProfileFrequency;
   topics: string[];
-  tonePreset: string;
-  toneCustom: string;
   recipients: string[];
   replyTo: string;
-  preferredPublications: string[];
-  substackUrls: string[];
-  linkedinUrls: string[];
-  primaryColor: string;
-  accentColor: string;
-  logoUrl: string;
 }
 
 export default function NewNewsletterWizard() {
@@ -42,25 +33,24 @@ export default function NewNewsletterWizard() {
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvancedTone, setShowAdvancedTone] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
   const [state, setState] = useState<WizardState>({
     company: "",
     role: "",
     frequency: DEFAULT_PROFILE_FREQUENCY,
     topics: [],
-    tonePreset: TONE_PRESETS[0].key,
-    toneCustom: "",
     recipients: [],
     replyTo: "",
-    preferredPublications: [],
-    substackUrls: [],
-    linkedinUrls: [],
-    primaryColor: "",
-    accentColor: "",
-    logoUrl: "",
   });
+
+  // Default Reply-To to the logged-in user's email (the Google account they signed in with).
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) {
+        setState((s) => (s.replyTo ? s : { ...s, replyTo: user.email! }));
+      }
+    });
+  }, [supabase]);
 
   const patch = (updates: Partial<WizardState>) =>
     setState((s) => ({ ...s, ...updates }));
@@ -68,7 +58,7 @@ export default function NewNewsletterWizard() {
   const stepValid = useMemo(() => {
     if (step === 0) return state.company.trim() !== "" && state.role.trim() !== "";
     if (step === 1) return state.topics.length > 0;
-    if (step === 2) return state.tonePreset !== "" && state.recipients.length > 0;
+    if (step === 2) return state.recipients.length > 0;
     return false;
   }, [step, state]);
 
@@ -92,16 +82,8 @@ export default function NewNewsletterWizard() {
           role: state.role,
           frequency: state.frequency,
           topics: state.topics,
-          tone_preset: state.tonePreset,
-          tone_custom: state.toneCustom,
           recipients: state.recipients,
           reply_to: state.replyTo,
-          preferred_publications: state.preferredPublications,
-          substack_urls: state.substackUrls,
-          linkedin_urls: state.linkedinUrls,
-          primary_color: state.primaryColor,
-          accent_color: state.accentColor,
-          logo_url: state.logoUrl,
         })
         .select()
         .single();
@@ -214,42 +196,6 @@ export default function NewNewsletterWizard() {
 
         {step === 2 && (
           <>
-            <div>
-              <label className="block text-sm font-medium mb-2">Tone</label>
-              <div className="flex flex-wrap gap-2">
-                {TONE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.key}
-                    type="button"
-                    onClick={() => patch({ tonePreset: preset.key })}
-                    className={`px-3 py-1.5 rounded-full text-sm border ${
-                      state.tonePreset === preset.key
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "border-gray-200 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-              <details
-                className="text-sm mt-3"
-                open={showAdvancedTone}
-                onToggle={(e) => setShowAdvancedTone(e.currentTarget.open)}
-              >
-                <summary className="cursor-pointer font-medium text-gray-700">
-                  Advanced: customize tone
-                </summary>
-                <textarea
-                  value={state.toneCustom}
-                  onChange={(e) => patch({ toneCustom: e.target.value })}
-                  rows={4}
-                  placeholder="Override the selected tone preset with your own description…"
-                  className="w-full mt-2 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </details>
-            </div>
-
             <TagInput
               label="Recipients"
               values={state.recipients}
@@ -266,68 +212,11 @@ export default function NewNewsletterWizard() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="you@company.com"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                Defaults to your sign-in email. You can fine-tune publications, branding, and
+                more after creating the newsletter.
+              </p>
             </div>
-
-            <details
-              className="text-sm"
-              open={showAdvancedSettings}
-              onToggle={(e) => setShowAdvancedSettings(e.currentTarget.open)}
-            >
-              <summary className="cursor-pointer font-medium text-gray-700">
-                Advanced Settings
-              </summary>
-              <div className="mt-4 space-y-4">
-                <TagInput
-                  label="Preferred Publications"
-                  values={state.preferredPublications}
-                  onChange={(preferredPublications) => patch({ preferredPublications })}
-                />
-                <TagInput
-                  label="Must-Read Substack URLs"
-                  values={state.substackUrls}
-                  onChange={(substackUrls) => patch({ substackUrls })}
-                  placeholder="https://newsletter.substack.com"
-                />
-                <TagInput
-                  label="LinkedIn Profile / Company URLs"
-                  values={state.linkedinUrls}
-                  onChange={(linkedinUrls) => patch({ linkedinUrls })}
-                  placeholder="https://linkedin.com/in/… or /company/…"
-                />
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Primary Color</label>
-                    <input
-                      type="text"
-                      value={state.primaryColor}
-                      onChange={(e) => patch({ primaryColor: e.target.value })}
-                      placeholder="#2563eb"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Accent Color</label>
-                    <input
-                      type="text"
-                      value={state.accentColor}
-                      onChange={(e) => patch({ accentColor: e.target.value })}
-                      placeholder="#e94560"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Logo URL</label>
-                    <input
-                      type="text"
-                      value={state.logoUrl}
-                      onChange={(e) => patch({ logoUrl: e.target.value })}
-                      placeholder="https://..."
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-            </details>
           </>
         )}
       </div>

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { TagInput } from "@/components/tag-input";
-import { FREQUENCY_HELPER_TEXT, TONE_PRESETS } from "@/lib/constants";
+import { FREQUENCY_HELPER_TEXT } from "@/lib/constants";
 import type { NewsletterConfig, ProfileFrequency } from "@/types";
 
 export default function EditNewsletterPage() {
@@ -16,7 +16,6 @@ export default function EditNewsletterPage() {
   const [newsletter, setNewsletter] = useState<NewsletterConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [showAdvancedTone, setShowAdvancedTone] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -58,8 +57,6 @@ export default function EditNewsletterPage() {
           role: newsletter.role,
           frequency: newsletter.frequency,
           topics: newsletter.topics,
-          tone_preset: newsletter.tone_preset,
-          tone_custom: newsletter.tone_custom,
           recipients: newsletter.recipients,
           reply_to: newsletter.reply_to,
           preferred_publications: newsletter.preferred_publications,
@@ -209,42 +206,6 @@ export default function EditNewsletterPage() {
           onChange={(topics) => patch({ topics })}
           placeholder="e.g. enterprise AI pricing"
         />
-
-        <div>
-          <label className="block text-sm font-medium mb-2">Tone</label>
-          <div className="flex flex-wrap gap-2">
-            {TONE_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                onClick={() => patch({ tone_preset: preset.key })}
-                className={`px-3 py-1.5 rounded-full text-sm border ${
-                  newsletter.tone_preset === preset.key
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "border-gray-200 text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <details
-            className="text-sm mt-3"
-            open={showAdvancedTone}
-            onToggle={(e) => setShowAdvancedTone(e.currentTarget.open)}
-          >
-            <summary className="cursor-pointer font-medium text-gray-700">
-              Advanced: customize tone
-            </summary>
-            <textarea
-              value={newsletter.tone_custom}
-              onChange={(e) => patch({ tone_custom: e.target.value })}
-              rows={4}
-              placeholder="Override the selected tone preset with your own description…"
-              className="w-full mt-2 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </details>
-        </div>
 
         <TagInput
           label="Recipients"

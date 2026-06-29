@@ -5,6 +5,84 @@ Willingness to earnestly steelman an absurd thing before puncturing it.
 Occasional running bits and tangential footnotes. Short, punchy closers.
 Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced.`;
 
+/** Tone chip presets offered in the newsletter creation wizard (Step 3). */
+export const TONE_PRESETS: { key: string; label: string; description: string }[] = [
+  {
+    key: "analytical",
+    label: "Analytical",
+    description:
+      "Rigorous and data-forward. Leads with the number or the mechanism, explains why it matters, avoids editorializing. Plain, precise language — no jokes, no flourish.",
+  },
+  {
+    key: "witty_dry",
+    label: "Witty & Dry",
+    description: DEFAULT_TONE_SPEC,
+  },
+  {
+    key: "editorial",
+    label: "Editorial",
+    description:
+      "Confident point-of-view writing, like a magazine column. Takes a stance, builds an argument across the piece, uses vivid concrete language. Opinionated but always grounded in sourced fact.",
+  },
+  {
+    key: "concise_executive",
+    label: "Concise & Executive",
+    description:
+      "Brief and decision-oriented, written for someone reading between meetings. Bottom line first, short sentences, no throat-clearing. Cuts anything that doesn't change a decision.",
+  },
+  {
+    key: "conversational",
+    label: "Conversational",
+    description:
+      "Warm and direct, like a smart colleague explaining what happened over coffee. Plain language, light first-person asides, still precise and sourced — never breezy at the expense of accuracy.",
+  },
+];
+
+export const FREQUENCY_HELPER_TEXT: Record<string, string> = {
+  daily: "Daily pulls from the past 24 hours of news.",
+  weekly: "Weekly pulls from the past 7 days of news.",
+  biweekly: "Biweekly pulls from the past 14 days of news.",
+  monthly: "Monthly pulls from the past 30 days of news.",
+};
+
+/** Lightweight keyword → topic suggestions for the topics step, keyed by role text. */
+const ROLE_TOPIC_SUGGESTIONS: { keywords: string[]; topics: string[] }[] = [
+  {
+    keywords: ["strategy", "corp dev", "corporate development"],
+    topics: ["M&A activity", "competitive positioning", "market entry"],
+  },
+  {
+    keywords: ["product"],
+    topics: ["product launches", "pricing changes", "user research trends"],
+  },
+  {
+    keywords: ["marketing", "growth"],
+    topics: ["brand campaigns", "channel performance", "consumer trends"],
+  },
+  {
+    keywords: ["engineering", "cto", "technical"],
+    topics: ["infrastructure trends", "developer tooling", "AI model releases"],
+  },
+  {
+    keywords: ["sales", "revenue", "rev ops"],
+    topics: ["enterprise deal trends", "pricing benchmarks", "sales tooling"],
+  },
+  {
+    keywords: ["finance", "investor", "vc", "investment"],
+    topics: ["funding rounds", "valuation trends", "earnings results"],
+  },
+];
+
+const GENERIC_TOPIC_SUGGESTIONS = ["industry trends", "competitor moves", "regulatory news"];
+
+export function suggestTopicsForRole(role: string): string[] {
+  const lower = role.toLowerCase();
+  const matched = ROLE_TOPIC_SUGGESTIONS.find((entry) =>
+    entry.keywords.some((kw) => lower.includes(kw))
+  );
+  return matched?.topics ?? GENERIC_TOPIC_SUGGESTIONS;
+}
+
 export const DEFAULT_PREFERRED_PUBS = [
   "semafor.com",
   "theinformation.com",

@@ -7,6 +7,8 @@ export type Lane =
 
 export type RunStatus = "queued" | "running" | "done" | "failed";
 
+export type PipelineStage = "research" | "filter" | "write" | "design" | "deliver";
+
 export interface BrandOverrides {
   primary_color?: string;
   accent_color?: string;
@@ -38,9 +40,35 @@ export interface Profile {
   updated_at: string;
 }
 
+/** A user's saved newsletter configuration (supports multiple per user) */
+export interface NewsletterConfig {
+  id: string;
+  user_id: string;
+  name: string;
+  company: string;
+  role: string;
+  frequency: ProfileFrequency;
+  topics: string[];
+  tone_preset: string;
+  tone_custom: string;
+  recipients: string[];
+  reply_to: string;
+  preferred_publications: string[];
+  substack_urls: string[];
+  linkedin_urls: string[];
+  primary_color: string;
+  accent_color: string;
+  logo_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Run {
   id: string;
+  newsletter_id: string | null;
+  user_id: string | null;
   status: RunStatus;
+  stage: PipelineStage;
   started_at: string | null;
   finished_at: string | null;
   cost_estimate_usd: number;

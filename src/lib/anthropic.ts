@@ -87,7 +87,8 @@ export async function callLLM(
   system: string,
   user: string,
   tracker: CostTracker,
-  maxTokens = 4096
+  maxTokens = 4096,
+  options: { throwOnTruncation?: boolean } = {}
 ): Promise<string> {
   const capCheck = checkCostCap(tracker);
   if (!capCheck.ok) {
@@ -117,6 +118,14 @@ export async function callLLM(
   const textBlock = response.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("No text response from LLM");
+  }
+  // Fail loudly on truncation: a max_tokens stop means the output is cut off mid-document.
+  // Silently returning partial text lets downstream stages (e.g. design HTML) ship a
+  // newsletter with the bottom — links, Further Reading — missing.
+  if (options.throwOnTruncation && response.stop_reason === "max_tokens") {
+    throw new Error(
+      `LLM output truncated at max_tokens (${maxTokens}); response is incomplete`
+    );
   }
   return textBlock.text;
 }

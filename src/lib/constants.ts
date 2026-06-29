@@ -87,6 +87,15 @@ export const DEFAULT_PROFILE_FREQUENCY = "weekly" as const;
 export const MAX_WORD_COUNT = 2000;
 
 /**
+ * Output-token ceiling for the design stage's markdown→HTML conversion. This must be much
+ * larger than the markdown's token count: the design agent emits table-based layout with
+ * inline styles on every element, which inflates output 4–6×. An 8K ceiling truncated the
+ * bottom of the newsletter (inline links + the Further Reading "Must read" list). Sonnet
+ * supports well beyond this, so we give generous headroom and detect truncation on top.
+ */
+export const DESIGN_MAX_OUTPUT_TOKENS = 16000;
+
+/**
  * Length budgeting (reporter). The reporter spends a word budget across stories in
  * relevance-priority order, giving top stories full depth and dropping the tail to
  * Further Reading — so the newsletter finishes within budget and the styled HTML stays

@@ -1,4 +1,6 @@
 import { callLLM } from "@/lib/anthropic";
+import { DESIGN_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import { extractMarkdownLinks } from "@/lib/utils";
 import type { BrandOverrides, CostTracker, Profile } from "@/types";
 
 /**
@@ -70,8 +72,48 @@ Requirements:
 
 Return HTML only. No markdown fences. No preamble.`;
 
-  const html = await callLLM("sonnet", system, markdown, tracker, 8192);
-  return stripCodeFences(html);
+  const html = stripCodeFences(
+    await callLLM("sonnet", system, markdown, tracker, DESIGN_MAX_OUTPUT_TOKENS, {
+      throwOnTruncation: true,
+    })
+  );
+
+  // Guardrail: the markdown→HTML step is the last place links + the bottom-of-letter
+  // Further Reading list can be silently dropped. If the LLM lost either, throw so the
+  // caller falls back to the deterministic converter (markdownToPlainHtml), which preserves
+  // every link and the full document structure.
+  assertConversionFidelity(markdown, html);
+
+  return html;
+}
+
+/** A heading is "present" in the HTML if its text survives the markdown→HTML conversion. */
+function htmlContainsHeading(html: string, headingText: string): boolean {
+  return html.toLowerCase().includes(headingText.toLowerCase());
+}
+
+/**
+ * Verify the rendered HTML preserved the markdown's links and its trailing Further Reading
+ * section. Throws on any loss — both are hard formatting guardrails for the newsletter.
+ */
+function assertConversionFidelity(markdown: string, html: string): void {
+  // URLs with query strings get their "&" HTML-encoded as "&amp;" inside href attributes;
+  // decode that so encoding alone isn't mistaken for a dropped link.
+  const decodedHtml = html.replace(/&amp;/g, "&");
+  const markdownLinks = new Set(extractMarkdownLinks(markdown));
+  const missing = [...markdownLinks].filter((url) => !decodedHtml.includes(url));
+  if (missing.length > 0) {
+    throw new Error(
+      `Design HTML dropped ${missing.length}/${markdownLinks.size} source links during conversion`
+    );
+  }
+
+  if (
+    markdown.includes("## Further Reading") &&
+    !htmlContainsHeading(html, "Further Reading")
+  ) {
+    throw new Error("Design HTML dropped the Further Reading section during conversion");
+  }
 }
 
 export function markdownToPlainHtml(markdown: string, brand: BrandIdentity): string {

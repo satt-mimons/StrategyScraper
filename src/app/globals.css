@@ -1,17 +1,44 @@
 @import "tailwindcss";
 
-:root {
-  --background: #fafafa;
-  --foreground: #171717;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --border: #e5e5e5;
-  --card: #ffffff;
-  --muted: #737373;
+/*
+ * The Desk — design system.
+ * Warm paper, ink, one accent. Three typefaces: Newsreader (editorial voice),
+ * Libre Franklin (UI workhorse), IBM Plex Mono (data & metadata).
+ * Tokens are exposed to Tailwind via @theme, so utilities like `bg-paper`,
+ * `text-ink-3`, `border-hairline`, `font-serif`, `rounded-card` are generated.
+ */
+@theme {
+  --color-paper: #f3efe5; /* app background — warm cream */
+  --color-surface: #fbf9f3; /* card / input fill — slightly lighter cream */
+  --color-ink: #1b1814; /* primary text — warm near-black */
+  --color-ink-2: #3a332a; /* secondary text / body */
+  --color-ink-3: #6e675b; /* muted / helper text */
+  --color-ink-4: #8a8275; /* placeholder / disabled text */
+  --color-oxblood: #8c2f23; /* the one accent */
+  --color-moss: #4a6138; /* success / "filed" status */
+  --color-moss-bg: #eaeedd; /* success badge background */
+  --color-hairline: #e2dcce; /* borders and dividers */
+  --color-hairline-2: #dcd5c6; /* input borders */
+  --color-hairline-3: #ede7da; /* form section divider */
+  --color-rule: #d8d1c2; /* newspaper rule + stepper connector */
+  --color-note-bg: #f7f3e9; /* inline callout / tinted box */
+
+  /* --ff-* are injected by next/font (see layout.tsx) with named fallbacks. */
+  --font-sans: var(--ff-sans), "Libre Franklin", system-ui, sans-serif;
+  --font-serif: var(--ff-serif), "Newsreader", Georgia, serif;
+  --font-mono: var(--ff-mono), "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-card: 6px;
+  --radius-input: 5px;
+  --radius-chip: 4px;
+  --radius-btn: 6px;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-card-2: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
 }

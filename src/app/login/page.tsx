@@ -31,12 +31,16 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-sm bg-white border border-gray-200 rounded-xl p-8">
-        <h1 className="text-2xl font-bold tracking-tight">Newsletter Generator</h1>
-        <p className="text-gray-500 mt-2 text-sm">Sign in to continue.</p>
+      <div className="w-full max-w-sm bg-white border border-hairline rounded-card shadow-card p-8 text-center">
+        <h1 className="font-serif text-[32px] font-semibold tracking-[-0.01em] text-ink">
+          The Desk<span className="text-oxblood">.</span>
+        </h1>
+        <p className="font-sans text-[14px] text-ink-4 mt-2">
+          The 9 a.m. you can quote. Sign in to continue.
+        </p>
 
         {error && (
-          <div className="mt-6 px-4 py-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200">
+          <div className="mt-6 px-4 py-3 rounded-input font-mono text-[12px] bg-note-bg text-oxblood border border-[#EAD9A0] text-left">
             {error}
           </div>
         )}
@@ -45,7 +49,7 @@ export default function LoginPage() {
           type="button"
           onClick={signInWithGoogle}
           disabled={loading}
-          className="mt-6 w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          className="mt-6 w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-hairline-2 rounded-btn font-sans text-[14px] font-semibold text-ink hover:bg-surface disabled:opacity-50"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path

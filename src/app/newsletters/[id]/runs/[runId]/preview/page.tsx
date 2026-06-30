@@ -21,27 +21,37 @@ export default function NewsletterPreviewPage() {
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-8">
+      {/*
+        No "Back to progress" link: the progress page redirects to this preview once a
+        run is done, so linking back there traps the user in a redirect loop. Navigation
+        goes to the dashboard or the brief instead.
+      */}
       <div className="flex items-center justify-between mb-6">
         <Link
-          href={`/newsletters/${params.id}/runs/${params.runId}`}
-          className="text-sm text-gray-500 hover:text-gray-700"
+          href="/"
+          className="font-sans text-[13px] text-ink-4 hover:text-ink-2"
         >
-          ← Back to progress
+          ← Back to The Desk
         </Link>
-        <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-          Back to dashboard
+        <Link
+          href={`/newsletters/${params.id}`}
+          className="font-sans text-[13px] font-semibold text-oxblood hover:opacity-70"
+        >
+          Edit brief →
         </Link>
       </div>
 
-      {error && <p className="text-red-700 text-sm">{error}</p>}
+      {error && <p className="font-mono text-[12px] text-oxblood">{error}</p>}
 
-      {!error && !html && <p className="text-gray-500 text-sm">Loading preview…</p>}
+      {!error && !html && (
+        <p className="font-mono text-[12px] text-ink-4">Loading preview…</p>
+      )}
 
       {html && (
         <iframe
           srcDoc={html}
           sandbox=""
-          className="w-full border border-gray-200 rounded-xl"
+          className="w-full border border-hairline rounded-card bg-white"
           style={{ height: "80vh" }}
           title="Newsletter preview"
         />

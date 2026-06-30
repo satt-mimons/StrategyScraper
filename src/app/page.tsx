@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { getLatestRunsByNewsletter } from "@/lib/supabase";
-import { displayName, estimatedNextRun } from "@/lib/newsletter-display";
-import { SignOutButton } from "@/components/sign-out-button";
+import {
+  getLatestRunsByNewsletter,
+  getNewsletterMetaByRunIds,
+} from "@/lib/supabase";
+import { displayName, extractPullQuote } from "@/lib/newsletter-display";
+import { AccountMenu } from "@/components/account-menu";
+import { BriefRow, type BriefRowData } from "@/components/brief-row";
+import { NewspaperRule, Dateline, btnInk } from "@/components/desk";
 import type { NewsletterConfig } from "@/types";
 
-const STATUS_STYLES: Record<string, string> = {
-  done: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  running: "bg-yellow-100 text-yellow-700",
-  queued: "bg-gray-100 text-gray-600",
-};
+const MONTH_DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
 export default async function Home() {
   const supabase = await createClient();
@@ -29,84 +29,79 @@ export default async function Home() {
   const list = (newsletters ?? []) as NewsletterConfig[];
   const latestRuns = await getLatestRunsByNewsletter(list.map((n) => n.id));
 
-  return (
-    <main className="max-w-5xl mx-auto px-6 py-12">
-      <header className="mb-10 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Your Newsletters</h1>
-          <p className="text-gray-500 mt-2">
-            Personalized multi-agent research → filter → write → design → deliver.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className="text-sm text-gray-600">{user.email}</span>
-          <SignOutButton />
-        </div>
-      </header>
+  const doneRunIds = [...latestRuns.values()]
+    .filter((r) => r.status === "done")
+    .map((r) => r.id);
+  const contentMeta = await getNewsletterMetaByRunIds(doneRunIds);
 
-      <div className="mb-8">
-        <Link
-          href="/newsletters/new"
-          className="inline-flex px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800"
-        >
-          + Create New Newsletter
+  const briefs: BriefRowData[] = list.map((newsletter) => {
+    const lastRun = latestRuns.get(newsletter.id);
+    const isDone = lastRun?.status === "done";
+    const meta = lastRun ? contentMeta.get(lastRun.id) : undefined;
+    const quote = meta ? extractPullQuote(meta.markdown) : null;
+
+    return {
+      id: newsletter.id,
+      title: displayName(newsletter),
+      topics: newsletter.topics,
+      failed: lastRun?.status === "failed",
+      lanesSucceeded: lastRun ? lastRun.lanes_succeeded.length : null,
+      filedDate: isDone ? lastRun?.finished_at ?? null : null,
+      wordCount: meta?.word_count ?? null,
+      lanesCount: lastRun ? lastRun.lanes_succeeded.length : null,
+      cost: lastRun ? lastRun.cost_estimate_usd : null,
+      lastRunId: meta ? lastRun!.id : null,
+      lastIssue:
+        isDone && quote && lastRun?.finished_at
+          ? { date: MONTH_DAY.format(new Date(lastRun.finished_at)), quote }
+          : null,
+    };
+  });
+
+  return (
+    <main className="max-w-[860px] mx-auto px-6 py-12">
+      {/* Masthead */}
+      <div className="flex justify-between items-baseline gap-4">
+        <div className="font-serif text-[28px] font-semibold tracking-[-0.01em] text-ink">
+          The Desk<span className="text-oxblood">.</span>
+        </div>
+        <AccountMenu email={user.email ?? ""} />
+      </div>
+
+      <div className="mt-3.5">
+        <NewspaperRule />
+      </div>
+      <div className="mt-2">
+        <Dateline date={new Date()} label="STANDING BRIEFS" />
+      </div>
+
+      {/* Section row */}
+      <div className="flex justify-between items-center mt-6">
+        <h1 className="font-serif text-[20px] font-semibold text-ink">
+          {list.length} standing {list.length === 1 ? "brief" : "briefs"}
+        </h1>
+        <Link href="/newsletters/new" className={btnInk}>
+          Commission a brief
         </Link>
       </div>
 
       {list.length === 0 ? (
-        <div className="border border-dashed border-gray-300 rounded-xl py-20 text-center">
-          <p className="text-gray-500 mb-4">You haven&apos;t created any newsletters yet.</p>
-          <Link
-            href="/newsletters/new"
-            className="inline-flex px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-          >
-            Create your first newsletter
-          </Link>
+        <div className="mt-16 text-center">
+          <p className="font-serif text-[22px] italic text-ink-3">Nothing filed yet.</p>
+          <p className="font-sans text-[15px] text-ink-4 mt-3">
+            Commission your first brief and we&apos;ll read the internet for you.
+          </p>
+          <div className="mt-6">
+            <Link href="/newsletters/new" className={btnInk}>
+              Commission a brief
+            </Link>
+          </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {list.map((newsletter) => {
-            const lastRun = latestRuns.get(newsletter.id);
-            const nextRun = estimatedNextRun(newsletter, lastRun);
-            return (
-              <Link
-                key={newsletter.id}
-                href={`/newsletters/${newsletter.id}`}
-                className="block bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 hover:shadow-sm transition"
-              >
-                <h2 className="font-semibold text-lg mb-1 truncate">
-                  {displayName(newsletter)}
-                </h2>
-                <p className="text-sm text-gray-500 capitalize mb-4">
-                  {newsletter.frequency}
-                </p>
-
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-gray-500">Last run</span>
-                  {lastRun ? (
-                    <span
-                      className={`px-2 py-0.5 rounded font-medium ${
-                        STATUS_STYLES[lastRun.status] ?? STATUS_STYLES.queued
-                      }`}
-                    >
-                      {lastRun.status}
-                      {lastRun.finished_at &&
-                        ` · ${new Date(lastRun.finished_at).toLocaleDateString()}`}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400">No runs yet</span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-between text-xs mt-2">
-                  <span className="text-gray-500">Next scheduled</span>
-                  <span className="text-gray-700">
-                    {nextRun.toLocaleDateString()}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
+        <div className="mt-4 flex flex-col gap-3.5">
+          {briefs.map((brief) => (
+            <BriefRow key={brief.id} data={brief} />
+          ))}
         </div>
       )}
     </main>

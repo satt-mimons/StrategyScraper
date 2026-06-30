@@ -1,5 +1,9 @@
 import { callLLM } from "@/lib/anthropic";
-import { DESIGN_MAX_OUTPUT_TOKENS } from "@/lib/constants";
+import {
+  DEFAULT_EMAIL_ACCENT_COLOR,
+  DEFAULT_EMAIL_PRIMARY_COLOR,
+  DESIGN_MAX_OUTPUT_TOKENS,
+} from "@/lib/constants";
 import { extractMarkdownLinks } from "@/lib/utils";
 import type { BrandOverrides, CostTracker, Profile } from "@/types";
 
@@ -7,8 +11,8 @@ import type { BrandOverrides, CostTracker, Profile } from "@/types";
  * Neutral fallback palette — company-agnostic. Used only when the user supplied no brand
  * colors AND the design LLM is unavailable (the LLM-failure fallback path).
  */
-const DEFAULT_PRIMARY_COLOR = "#1a1a2e";
-const DEFAULT_ACCENT_COLOR = "#e94560";
+const DEFAULT_PRIMARY_COLOR = DEFAULT_EMAIL_PRIMARY_COLOR;
+const DEFAULT_ACCENT_COLOR = DEFAULT_EMAIL_ACCENT_COLOR;
 
 export interface BrandIdentity {
   primaryColor: string;

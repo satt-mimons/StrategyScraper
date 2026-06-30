@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { btnOutline, inputClass } from "@/components/desk";
 
 export function TagInput({
   label,
@@ -9,7 +10,7 @@ export function TagInput({
   placeholder,
   suggestions,
 }: {
-  label: string;
+  label?: string;
   values: string[];
   onChange: (v: string[]) => void;
   placeholder?: string;
@@ -29,24 +30,31 @@ export function TagInput({
 
   return (
     <div>
-      <label className="block text-sm font-medium mb-1">{label}</label>
-      <div className="flex flex-wrap gap-2 mb-2">
-        {values.map((v) => (
-          <span
-            key={v}
-            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded text-sm"
-          >
-            {v}
-            <button
-              type="button"
-              onClick={() => onChange(values.filter((x) => x !== v))}
-              className="text-blue-400 hover:text-blue-600"
+      {label && (
+        <label className="block font-sans text-[13px] font-semibold text-ink-2 mb-2">
+          {label}
+        </label>
+      )}
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {values.map((v) => (
+            <span
+              key={v}
+              className="inline-flex items-center gap-1.5 font-mono text-[12px] font-medium text-ink-2 bg-surface border border-hairline-2 rounded-chip px-2.5 py-1.5"
             >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
+              {v}
+              <button
+                type="button"
+                onClick={() => onChange(values.filter((x) => x !== v))}
+                className="text-oxblood hover:opacity-70 leading-none"
+                aria-label={`Remove ${v}`}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="flex gap-2">
         <input
           type="text"
@@ -54,24 +62,20 @@ export function TagInput({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
           placeholder={placeholder}
-          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={inputClass + " flex-1"}
         />
-        <button
-          type="button"
-          onClick={() => add()}
-          className="px-3 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200"
-        >
+        <button type="button" onClick={() => add()} className={btnOutline}>
           Add
         </button>
       </div>
       {unusedSuggestions.length > 0 && (
-        <div className="flex flex-wrap gap-2 mt-2">
+        <div className="flex flex-wrap gap-2 mt-3">
           {unusedSuggestions.map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => add(s)}
-              className="px-2 py-1 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50"
+              className="font-mono text-[12px] text-ink-4 border border-hairline-2 rounded-chip px-2.5 py-1.5 hover:bg-surface hover:text-ink-2 transition"
             >
               + {s}
             </button>

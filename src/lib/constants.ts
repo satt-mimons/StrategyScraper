@@ -5,12 +5,41 @@ Willingness to earnestly steelman an absurd thing before puncturing it.
 Occasional running bits and tangential footnotes. Short, punchy closers.
 Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced.`;
 
-export const FREQUENCY_HELPER_TEXT: Record<string, string> = {
-  daily: "Daily pulls from the past 24 hours of news.",
-  weekly: "Weekly pulls from the past 7 days of news.",
-  biweekly: "Biweekly pulls from the past 14 days of news.",
-  monthly: "Monthly pulls from the past 30 days of news.",
-};
+import type { ProfileFrequency } from "@/types";
+
+/**
+ * Cadence sets the research look-back window — NOT a send schedule (MVP is manual
+ * Generate-only). Labels read as "how far back we read"; the helper says so plainly.
+ * When v2 scheduling ships, update CADENCE_HELPER to describe the real send schedule.
+ */
+export const CADENCE_OPTIONS: { value: ProfileFrequency; label: string }[] = [
+  { value: "weekly", label: "Weekly — the last 7 days" },
+  { value: "daily", label: "Daily — the last 24 hours" },
+  { value: "biweekly", label: "Biweekly — the last 14 days" },
+  { value: "monthly", label: "Monthly — the last 30 days" },
+];
+
+export const CADENCE_HELPER =
+  "Sets the look-back window, not a schedule. You press Generate — we never send behind your back.";
+
+/**
+ * Neutral fallback palette for the generated *email* (company-agnostic). Surfaced in the
+ * edit form so users see what colors their email uses when the brand fields are left blank.
+ * Single source of truth — also consumed by the design agent (src/agents/design.ts).
+ */
+export const DEFAULT_EMAIL_PRIMARY_COLOR = "#1a1a2e";
+export const DEFAULT_EMAIL_ACCENT_COLOR = "#e94560";
+
+/** The six research lanes, surfaced under Topics without ever saying "AI". */
+export const SOURCES_CALLOUT_COPY =
+  "Each topic is run through six lanes — Substack · Medium · News · Analysts · X · LinkedIn — then filtered for novelty.";
+
+/** Example topics shown as muted placeholder suggestions in the wizard's Topics step. */
+export const TOPIC_EXAMPLE_SUGGESTIONS = [
+  "enterprise AI pricing",
+  "SaaS valuation multiples",
+  "public vs private markets",
+];
 
 /** Lightweight keyword → topic suggestions for the topics step, keyed by role text. */
 const ROLE_TOPIC_SUGGESTIONS: { keywords: string[]; topics: string[] }[] = [

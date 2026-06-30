@@ -1,9 +1,35 @@
 import type { Metadata } from "next";
+import { Newsreader, Libre_Franklin, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
+// The Desk's three voices. next/font self-hosts each and exposes a CSS variable
+// that globals.css feeds into the Tailwind font-* utilities.
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--ff-serif",
+  display: "swap",
+});
+
+const libreFranklin = Libre_Franklin({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--ff-sans",
+  display: "swap",
+});
+
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--ff-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Newsletter Generator",
-  description: "Personalized multi-agent newsletter generator",
+  title: "The Desk",
+  description:
+    "A finance desk that quietly reads the entire internet so you don't have to.",
 };
 
 export default function RootLayout({
@@ -12,7 +38,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html
+      lang="en"
+      className={`${newsreader.variable} ${libreFranklin.variable} ${ibmPlexMono.variable}`}
+    >
       <body className="antialiased min-h-screen">{children}</body>
     </html>
   );

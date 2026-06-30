@@ -5,17 +5,25 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { TagInput } from "@/components/tag-input";
 import {
+  btnGhost,
+  btnInk,
+  btnOxblood,
+  Field,
+  helperText,
+  inputClass,
+  SourcesCallout,
+} from "@/components/desk";
+import {
+  CADENCE_HELPER,
+  CADENCE_OPTIONS,
   DEFAULT_PROFILE_FREQUENCY,
-  FREQUENCY_HELPER_TEXT,
+  SOURCES_CALLOUT_COPY,
   suggestTopicsForRole,
+  TOPIC_EXAMPLE_SUGGESTIONS,
 } from "@/lib/constants";
 import type { ProfileFrequency } from "@/types";
 
-const STEPS = [
-  { title: "Context" },
-  { title: "Topics" },
-  { title: "Delivery" },
-];
+const STEPS = ["Context", "Topics", "Delivery"];
 
 interface WizardState {
   company: string;
@@ -24,6 +32,8 @@ interface WizardState {
   topics: string[];
   recipients: string[];
   replyTo: string;
+  primaryColor: string;
+  logoUrl: string;
 }
 
 export default function NewNewsletterWizard() {
@@ -41,9 +51,11 @@ export default function NewNewsletterWizard() {
     topics: [],
     recipients: [],
     replyTo: "",
+    primaryColor: "",
+    logoUrl: "",
   });
 
-  // Default Reply-To to the logged-in user's email (the Google account they signed in with).
+  // Default Reply-To to the logged-in user's email (the account they signed in with).
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user?.email) {
@@ -84,6 +96,8 @@ export default function NewNewsletterWizard() {
           topics: state.topics,
           recipients: state.recipients,
           reply_to: state.replyTo,
+          primary_color: state.primaryColor,
+          logo_url: state.logoUrl,
         })
         .select()
         .single();
@@ -105,147 +119,205 @@ export default function NewNewsletterWizard() {
     }
   };
 
-  return (
-    <main className="max-w-2xl mx-auto px-6 py-12">
-      <h1 className="text-2xl font-bold tracking-tight mb-2">Create a New Newsletter</h1>
+  const roleText = state.role.trim() || "a VP, Corporate Strategy";
+  const companyText = state.company.trim() || "ServiceNow";
 
-      <div className="flex items-center gap-2 mb-8">
-        {STEPS.map((s, i) => (
-          <div key={s.title} className="flex items-center gap-2 flex-1">
-            <div
-              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
-                i === step
-                  ? "bg-gray-900 text-white"
-                  : i < step
-                    ? "bg-gray-300 text-gray-700"
-                    : "bg-gray-100 text-gray-400"
-              }`}
-            >
-              {i + 1}
+  return (
+    <main className="max-w-[760px] mx-auto px-6 py-12">
+      <h1 className="font-serif text-[26px] font-semibold tracking-[-0.01em] text-ink">
+        Commission a brief
+      </h1>
+
+      {/* Stepper */}
+      <div className="flex items-center gap-2.5 mt-5">
+        {STEPS.map((label, i) => {
+          const filled = i <= step;
+          return (
+            <div key={label} className="flex items-center gap-2.5 flex-1 last:flex-none">
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className={`w-6 h-6 rounded-full flex items-center justify-center font-mono text-[12px] font-medium ${
+                    filled
+                      ? "bg-ink text-paper"
+                      : "border border-[#CFC8B8] text-ink-4"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span
+                  className={`font-serif text-[16px] ${
+                    i === step
+                      ? "text-ink font-semibold"
+                      : filled
+                        ? "text-ink"
+                        : "text-ink-4"
+                  }`}
+                >
+                  {label}
+                </span>
+              </div>
+              {i < STEPS.length - 1 && <span className="flex-1 h-px bg-rule" />}
             </div>
-            <span
-              className={`text-sm ${i === step ? "text-gray-900 font-medium" : "text-gray-400"}`}
-            >
-              {s.title}
-            </span>
-            {i < STEPS.length - 1 && <div className="flex-1 h-px bg-gray-200" />}
-          </div>
-        ))}
+          );
+        })}
       </div>
-      <p className="text-xs text-gray-500 mb-6">
-        Step {step + 1} of {STEPS.length}: {STEPS[step].title}
+      <p className="font-mono text-[12px] text-ink-4 mt-3">
+        Step {step + 1} of {STEPS.length} · {STEPS[step]}
       </p>
 
       {error && (
-        <div className="mb-6 px-4 py-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200">
+        <div className="mt-5 px-4 py-3 rounded-input font-mono text-[12px] bg-note-bg text-oxblood border border-[#EAD9A0]">
           {error}
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
-        {step === 0 && (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-1">Company</label>
-              <input
-                type="text"
-                value={state.company}
-                onChange={(e) => patch({ company: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Acme Corp"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
-              <input
-                type="text"
-                value={state.role}
-                onChange={(e) => patch({ role: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="VP Corporate Strategy"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Send Frequency</label>
-              <select
-                value={state.frequency}
-                onChange={(e) => patch({ frequency: e.target.value as ProfileFrequency })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      {step === 0 && (
+        <div className="flex gap-6 mt-6">
+          <div className="flex-[1.55]">
+            <div className="bg-white border border-hairline rounded-card px-[26px] py-6">
+              <Field label="Company">
+                <input
+                  type="text"
+                  value={state.company}
+                  onChange={(e) => patch({ company: e.target.value })}
+                  className={inputClass}
+                  placeholder="ServiceNow"
+                />
+              </Field>
+              <Field label="Role" className="mt-[18px]">
+                <input
+                  type="text"
+                  value={state.role}
+                  onChange={(e) => patch({ role: e.target.value })}
+                  className={inputClass}
+                  placeholder="VP, Corporate Strategy"
+                />
+              </Field>
+              <Field
+                label={
+                  <>
+                    Cadence{" "}
+                    <span className="font-normal text-ink-4">— how far back we read</span>
+                  </>
+                }
+                className="mt-[18px]"
               >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Biweekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                {FREQUENCY_HELPER_TEXT[state.frequency]}
+                <select
+                  value={state.frequency}
+                  onChange={(e) => patch({ frequency: e.target.value as ProfileFrequency })}
+                  className={inputClass}
+                >
+                  {CADENCE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className={`${helperText} mt-2.5`}>{CADENCE_HELPER}</p>
+              </Field>
+            </div>
+          </div>
+
+          {/* Editorial margin note */}
+          <div className="flex-1 pt-1">
+            <div className="border-l-2 border-oxblood pl-3.5">
+              <div className="font-mono text-[11px] font-medium tracking-[0.1em] uppercase text-oxblood mb-2">
+                In the margin
+              </div>
+              <p className="font-serif text-[17px] italic leading-[1.45] text-ink-2">
+                Company and role aren&apos;t form-filler. We read every story as if we were{" "}
+                {roleText} at {companyText} — and quietly ignore what they wouldn&apos;t care
+                about.
               </p>
             </div>
-          </>
-        )}
+          </div>
+        </div>
+      )}
 
-        {step === 1 && (
+      {step === 1 && (
+        <div className="bg-white border border-hairline rounded-card px-[26px] py-6 mt-6 space-y-4">
           <TagInput
             label="Topics"
             values={state.topics}
             onChange={(topics) => patch({ topics })}
-            placeholder="e.g. enterprise AI pricing"
-            suggestions={suggestTopicsForRole(state.role)}
+            placeholder="Add a topic — e.g. enterprise AI pricing"
+            suggestions={[
+              ...suggestTopicsForRole(state.role),
+              ...TOPIC_EXAMPLE_SUGGESTIONS,
+            ].filter((v, i, a) => a.indexOf(v) === i)}
           />
-        )}
+          <SourcesCallout copy={SOURCES_CALLOUT_COPY} />
+        </div>
+      )}
 
-        {step === 2 && (
-          <>
-            <TagInput
-              label="Recipients"
-              values={state.recipients}
-              onChange={(recipients) => patch({ recipients })}
+      {step === 2 && (
+        <div className="bg-white border border-hairline rounded-card px-[26px] py-6 mt-6 space-y-5">
+          <TagInput
+            label="Recipients"
+            values={state.recipients}
+            onChange={(recipients) => patch({ recipients })}
+            placeholder="you@company.com"
+          />
+
+          <Field label="Reply-To email">
+            <input
+              type="email"
+              value={state.replyTo}
+              onChange={(e) => patch({ replyTo: e.target.value })}
+              className={inputClass}
               placeholder="you@company.com"
             />
+            <p className={`${helperText} mt-2`}>Defaults to your sign-in email.</p>
+          </Field>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Reply-To Email</label>
-              <input
-                type="email"
-                value={state.replyTo}
-                onChange={(e) => patch({ replyTo: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="you@company.com"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Defaults to your sign-in email. You can fine-tune publications, branding, and
-                more after creating the newsletter.
-              </p>
+          <div className="border-t border-hairline-3 pt-5">
+            <div className="font-mono text-[11px] font-medium tracking-[0.1em] uppercase text-ink-4 mb-3">
+              Brand overrides · optional
             </div>
-          </>
-        )}
-      </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Primary color (hex)">
+                <input
+                  type="text"
+                  value={state.primaryColor}
+                  onChange={(e) => patch({ primaryColor: e.target.value })}
+                  className={inputClass}
+                  placeholder="#8C2F23"
+                />
+              </Field>
+              <Field label="Logo URL">
+                <input
+                  type="text"
+                  value={state.logoUrl}
+                  onChange={(e) => patch({ logoUrl: e.target.value })}
+                  className={inputClass}
+                  placeholder="https://…"
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div className="flex justify-between mt-6">
+      <div className="flex justify-between items-center mt-6">
         <button
           type="button"
           onClick={step === 0 ? () => router.push("/") : back}
-          className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className={btnGhost}
         >
-          {step === 0 ? "Cancel" : "Back"}
+          {step === 0 ? "Cancel" : "← Back"}
         </button>
         {step < STEPS.length - 1 ? (
-          <button
-            type="button"
-            onClick={next}
-            disabled={!stepValid}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
-          >
-            Next
+          <button type="button" onClick={next} disabled={!stepValid} className={btnInk}>
+            Next →
           </button>
         ) : (
           <button
             type="button"
             onClick={submit}
             disabled={!stepValid || submitting}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className={btnOxblood}
           >
-            {submitting ? "Starting…" : "Generate Newsletter"}
+            {submitting ? "Filing…" : "Generate now"}
           </button>
         )}
       </div>

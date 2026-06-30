@@ -1,11 +1,4 @@
-import type { NewsletterConfig, ProfileFrequency, Run } from "@/types";
-
-const FREQUENCY_DAYS: Record<ProfileFrequency, number> = {
-  daily: 1,
-  weekly: 7,
-  biweekly: 14,
-  monthly: 30,
-};
+import type { NewsletterConfig } from "@/types";
 
 export function displayName(newsletter: NewsletterConfig): string {
   if (newsletter.name.trim()) return newsletter.name;
@@ -13,12 +6,53 @@ export function displayName(newsletter: NewsletterConfig): string {
   return "Untitled newsletter";
 }
 
-/** Estimated next send, derived from cadence since the last completed run (or creation). */
-export function estimatedNextRun(
-  newsletter: NewsletterConfig,
-  lastRun: Run | undefined
-): Date {
-  const anchor = lastRun?.finished_at ?? newsletter.created_at;
-  const days = FREQUENCY_DAYS[newsletter.frequency];
-  return new Date(new Date(anchor).getTime() + days * 24 * 60 * 60 * 1000);
+/** Strip light inline markdown (links, bold, italics, code) down to plain text. */
+function stripInlineMarkdown(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // [label](url) → label
+    .replace(/[*_`]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * A one-line pull quote for the dashboard's last-issue strip: the first sentence of
+ * the newsletter's TLDR. Falls back to the first content line if there's no TLDR
+ * heading, and returns null when there's nothing usable.
+ */
+export function extractPullQuote(markdown: string | null | undefined): string | null {
+  if (!markdown) return null;
+  const lines = markdown.split("\n");
+
+  let firstContent: string | null = null;
+  let inTldr = false;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    if (heading) {
+      inTldr = /tl;?dr/i.test(heading[1]);
+      continue;
+    }
+
+    // Bullet or numbered list item, or a plain paragraph.
+    const item = line.replace(/^([-*+]|\d+\.)\s+/, "");
+    const clean = stripInlineMarkdown(item);
+    if (!clean) continue;
+
+    if (inTldr) return firstSentence(clean);
+    if (firstContent === null) firstContent = clean;
+  }
+
+  return firstContent ? firstSentence(firstContent) : null;
+}
+
+function firstSentence(text: string): string {
+  const match = text.match(/^.*?[.!?](?=\s|$)/);
+  const sentence = (match ? match[0] : text).trim();
+  // Guard against a runaway "sentence" with no terminal punctuation.
+  if (sentence.length > 180) return sentence.slice(0, 177).trimEnd() + "…";
+  return sentence;
 }

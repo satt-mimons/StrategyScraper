@@ -5,9 +5,30 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { TagInput } from "@/components/tag-input";
-import { FREQUENCY_HELPER_TEXT } from "@/lib/constants";
+import {
+  btnGhost,
+  btnInkOutline,
+  btnOxblood,
+  ColorField,
+  Field,
+  FormSectionHeading,
+  helperText,
+  inputClass,
+  LogoField,
+  SourcesCallout,
+} from "@/components/desk";
+import {
+  CADENCE_HELPER,
+  CADENCE_OPTIONS,
+  DEFAULT_EMAIL_ACCENT_COLOR,
+  DEFAULT_EMAIL_PRIMARY_COLOR,
+  SOURCES_CALLOUT_COPY,
+} from "@/lib/constants";
+import { displayName } from "@/lib/newsletter-display";
 import { summarizeRunCoverage } from "@/lib/lane-stats";
 import type { NewsletterConfig, ProfileFrequency, Run } from "@/types";
+
+const RUN_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
 export default function EditNewsletterPage() {
   const params = useParams<{ id: string }>();
@@ -18,7 +39,7 @@ export default function EditNewsletterPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(
@@ -97,6 +118,12 @@ export default function EditNewsletterPage() {
     if (ok) setMessage({ type: "success", text: "Changes saved." });
   };
 
+  const discardChanges = async () => {
+    setMessage(null);
+    setLoading(true);
+    await load();
+  };
+
   const generateNow = async () => {
     setGenerating(true);
     setMessage(null);
@@ -125,236 +152,271 @@ export default function EditNewsletterPage() {
   };
 
   if (loading) {
-    return <main className="max-w-3xl mx-auto px-6 py-12 text-gray-500">Loading…</main>;
+    return (
+      <main className="max-w-[760px] mx-auto px-6 py-12 font-sans text-ink-4">Loading…</main>
+    );
   }
 
   if (notFound || !newsletter) {
     return (
-      <main className="max-w-3xl mx-auto px-6 py-12">
-        <p className="text-gray-500 mb-4">Newsletter not found.</p>
-        <Link href="/" className="text-blue-600 hover:underline text-sm">
-          ← Back to dashboard
+      <main className="max-w-[760px] mx-auto px-6 py-12">
+        <p className="font-sans text-ink-3 mb-4">Brief not found.</p>
+        <Link href="/" className="text-oxblood hover:opacity-70 text-sm">
+          ← Back to The Desk
         </Link>
       </main>
     );
   }
 
   return (
-    <main className="max-w-3xl mx-auto px-6 py-12">
-      <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-        ← Back to dashboard
+    <main className="max-w-[760px] mx-auto px-6 py-12">
+      <Link
+        href="/"
+        className="font-sans text-[13px] text-ink-4 hover:text-ink-2"
+      >
+        ← Back to The Desk
       </Link>
-      <h1 className="text-3xl font-bold tracking-tight mt-4 mb-8">Edit Newsletter</h1>
+
+      <div className="flex items-baseline justify-between mt-4">
+        <h1 className="font-serif text-[26px] font-semibold tracking-[-0.01em] text-ink">
+          Edit brief
+        </h1>
+        <div className="font-mono text-[12px] text-ink-4">
+          {displayName(newsletter)} · {newsletter.frequency}
+        </div>
+      </div>
 
       {message && (
         <div
-          className={`mb-6 px-4 py-3 rounded-lg text-sm ${
+          className={`mt-6 px-4 py-3 rounded-input font-mono text-[12px] border ${
             message.type === "success"
-              ? "bg-green-50 text-green-800 border border-green-200"
-              : "bg-red-50 text-red-800 border border-red-200"
+              ? "bg-moss-bg text-moss border-[#CBD6B4]"
+              : "bg-note-bg text-oxblood border-[#EAD9A0]"
           }`}
         >
           {message.text}
         </div>
       )}
 
-      <section className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
-        <div>
-          <label className="block text-sm font-medium mb-1">Newsletter Name</label>
+      <section className="bg-white border border-hairline rounded-card px-[26px] py-6 mt-[18px]">
+        {/* Identity */}
+        <FormSectionHeading>Identity</FormSectionHeading>
+        <Field label="Newsletter name">
           <input
             type="text"
             value={newsletter.name}
             onChange={(e) => patch({ name: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Leave blank to auto-name from your first topic"
+            className={inputClass}
+            placeholder="Leave blank and we'll name it after your first topic"
           />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Company</label>
+        </Field>
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <Field label="Company">
             <input
               type="text"
               value={newsletter.company}
               onChange={(e) => patch({ company: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Acme Corp"
+              className={inputClass}
+              placeholder="ServiceNow"
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Role</label>
+          </Field>
+          <Field label="Role">
             <input
               type="text"
               value={newsletter.role}
               onChange={(e) => patch({ role: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="VP Corporate Strategy"
+              className={inputClass}
+              placeholder="VP, Corporate Strategy"
             />
+          </Field>
+        </div>
+
+        {/* Topics & sources */}
+        <div className="mt-[26px]">
+          <FormSectionHeading>Topics &amp; sources</FormSectionHeading>
+          <TagInput
+            values={newsletter.topics}
+            onChange={(topics) => patch({ topics })}
+            placeholder="Add a topic — e.g. enterprise AI pricing"
+          />
+          <div className="mt-3">
+            <SourcesCallout copy={SOURCES_CALLOUT_COPY} />
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Send Frequency</label>
-          <select
-            value={newsletter.frequency}
-            onChange={(e) => patch({ frequency: e.target.value as ProfileFrequency })}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="biweekly">Biweekly</option>
-            <option value="monthly">Monthly</option>
-          </select>
-          <p className="text-xs text-gray-500 mt-1">
-            {FREQUENCY_HELPER_TEXT[newsletter.frequency]}
-          </p>
+        {/* Delivery */}
+        <div className="mt-[26px]">
+          <FormSectionHeading>Delivery</FormSectionHeading>
+          <Field label="Cadence — how far back we read">
+            <select
+              value={newsletter.frequency}
+              onChange={(e) => patch({ frequency: e.target.value as ProfileFrequency })}
+              className={inputClass}
+            >
+              {CADENCE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className={`${helperText} mt-2`}>{CADENCE_HELPER}</p>
+          </Field>
+
+          <Field label="Recipients" className="mt-4">
+            <TagInput
+              values={newsletter.recipients}
+              onChange={(recipients) => patch({ recipients })}
+              placeholder="you@company.com"
+            />
+          </Field>
+
+          <Field label="Reply-To email" className="mt-4">
+            <input
+              type="email"
+              value={newsletter.reply_to}
+              onChange={(e) => patch({ reply_to: e.target.value })}
+              className={inputClass}
+              placeholder="you@company.com"
+            />
+          </Field>
         </div>
 
-        <TagInput
-          label="Topics"
-          values={newsletter.topics}
-          onChange={(topics) => patch({ topics })}
-          placeholder="e.g. enterprise AI pricing"
-        />
-
-        <TagInput
-          label="Recipients"
-          values={newsletter.recipients}
-          onChange={(recipients) => patch({ recipients })}
-          placeholder="you@company.com"
-        />
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Reply-To Email</label>
-          <input
-            type="email"
-            value={newsletter.reply_to}
-            onChange={(e) => patch({ reply_to: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="you@company.com"
-          />
-        </div>
-
+        {/* Advanced */}
         <details
-          className="text-sm"
-          open={showAdvancedSettings}
-          onToggle={(e) => setShowAdvancedSettings(e.currentTarget.open)}
+          className="mt-[26px]"
+          open={showAdvanced}
+          onToggle={(e) => setShowAdvanced(e.currentTarget.open)}
         >
-          <summary className="cursor-pointer font-medium text-gray-700">
-            Advanced Settings
+          <summary className="cursor-pointer font-mono text-[11px] font-medium tracking-[0.1em] uppercase text-ink-4 hover:text-ink-2">
+            Advanced sources &amp; branding
           </summary>
           <div className="mt-4 space-y-4">
-            <TagInput
-              label="Preferred Publications"
-              values={newsletter.preferred_publications}
-              onChange={(preferred_publications) => patch({ preferred_publications })}
-            />
-            <TagInput
-              label="Must-Read Substack URLs"
-              values={newsletter.substack_urls}
-              onChange={(substack_urls) => patch({ substack_urls })}
-              placeholder="https://newsletter.substack.com"
-            />
-            <TagInput
-              label="LinkedIn Profile / Company URLs"
-              values={newsletter.linkedin_urls}
-              onChange={(linkedin_urls) => patch({ linkedin_urls })}
-              placeholder="https://linkedin.com/in/… or /company/…"
-            />
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Primary Color</label>
-                <input
-                  type="text"
+            <Field label="Preferred publications">
+              <TagInput
+                values={newsletter.preferred_publications}
+                onChange={(preferred_publications) => patch({ preferred_publications })}
+                placeholder="bloomberg.com"
+              />
+            </Field>
+            <Field label="Must-read Substack URLs">
+              <TagInput
+                values={newsletter.substack_urls}
+                onChange={(substack_urls) => patch({ substack_urls })}
+                placeholder="https://newsletter.substack.com"
+              />
+            </Field>
+            <Field label="LinkedIn profile / company URLs">
+              <TagInput
+                values={newsletter.linkedin_urls}
+                onChange={(linkedin_urls) => patch({ linkedin_urls })}
+                placeholder="https://linkedin.com/in/… or /company/…"
+              />
+            </Field>
+
+            {/* Email branding — colors and logo applied to the generated newsletter. */}
+            <div className="border-t border-hairline-3 pt-4">
+              <p className={`${helperText} mb-3`}>
+                Email branding — applied to the newsletter we send, not this app.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <ColorField
+                  label="Primary color · optional"
                   value={newsletter.primary_color}
-                  onChange={(e) => patch({ primary_color: e.target.value })}
-                  placeholder="#2563eb"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  onChange={(primary_color) => patch({ primary_color })}
+                  fallback={DEFAULT_EMAIL_PRIMARY_COLOR}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Accent Color</label>
-                <input
-                  type="text"
+                <ColorField
+                  label="Accent color · optional"
                   value={newsletter.accent_color}
-                  onChange={(e) => patch({ accent_color: e.target.value })}
-                  placeholder="#e94560"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  onChange={(accent_color) => patch({ accent_color })}
+                  fallback={DEFAULT_EMAIL_ACCENT_COLOR}
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Logo URL</label>
-                <input
-                  type="text"
+              <div className="mt-4">
+                <LogoField
                   value={newsletter.logo_url}
-                  onChange={(e) => patch({ logo_url: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  onChange={(logo_url) => patch({ logo_url })}
                 />
               </div>
             </div>
           </div>
         </details>
-
-        <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleSaveChanges}
-            disabled={saving || generating}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
-          >
-            {saving ? "Saving…" : "Save Changes"}
-          </button>
-          <button
-            onClick={generateNow}
-            disabled={generating || saving}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {generating ? "Generating…" : "Generate Now"}
-          </button>
-        </div>
       </section>
 
+      {/* Action bar */}
+      <div className="flex justify-between items-center mt-4 bg-white border border-hairline rounded-card px-[18px] py-3.5">
+        <button
+          type="button"
+          onClick={discardChanges}
+          disabled={saving || generating}
+          className={btnGhost}
+        >
+          Discard changes
+        </button>
+        <div className="flex gap-2.5">
+          <button
+            type="button"
+            onClick={handleSaveChanges}
+            disabled={saving || generating}
+            className={btnInkOutline}
+          >
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+          <button
+            type="button"
+            onClick={generateNow}
+            disabled={generating || saving}
+            className={btnOxblood}
+          >
+            {generating ? "Filing…" : "Generate now"}
+          </button>
+        </div>
+      </div>
+
       {runs.length > 0 && (
-        <section className="bg-white border border-gray-200 rounded-xl p-6 mt-8">
-          <h2 className="text-lg font-semibold mb-4">Recent Runs</h2>
-          <div className="space-y-2">
+        <section className="mt-8">
+          <div className="font-mono text-[11px] font-medium tracking-[0.12em] uppercase text-ink-4 mb-3">
+            Recent runs
+          </div>
+          <div className="flex flex-col gap-2">
             {runs.map((run, i) => {
               const { reviewed, featured } = summarizeRunCoverage(run.lane_stats);
               const when = run.finished_at ?? run.started_at ?? run.created_at;
               return (
-                <div key={run.id} className="px-3 py-3 bg-gray-50 rounded-lg text-sm space-y-2">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-medium text-gray-700">
+                <div
+                  key={run.id}
+                  className="bg-white border border-hairline rounded-card px-4 py-3"
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap font-mono text-[12px]">
+                    <span className="text-ink-2 font-medium">
                       Run #{runs.length - i}
-                      <span className="text-gray-400 font-normal ml-2">
-                        {when ? new Date(when).toLocaleDateString() : ""}
+                      <span className="text-ink-4 font-normal ml-2">
+                        {when ? RUN_DATE.format(new Date(when)) : ""}
                       </span>
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      className={
                         run.status === "done"
-                          ? "bg-green-100 text-green-700"
+                          ? "text-moss"
                           : run.status === "failed"
-                            ? "bg-red-100 text-red-700"
-                            : run.status === "running"
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-gray-100 text-gray-600"
-                      }`}
+                            ? "text-oxblood"
+                            : "text-ink-4"
+                      }
                     >
-                      {run.status}
+                      {run.status === "done" ? "● filed" : run.status}
                     </span>
                   </div>
                   {run.status === "done" && (
-                    <p className="text-xs text-gray-600">
-                      {reviewed} sources reviewed · {featured} articles featured
+                    <p className="font-mono text-[12px] text-ink-4 mt-2">
+                      {reviewed} sources reviewed · {featured} featured
                     </p>
                   )}
                   {run.error && (
-                    <details className="text-xs">
-                      <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+                    <details className="mt-2 font-mono text-[12px]">
+                      <summary className="cursor-pointer text-ink-4 hover:text-ink-2">
                         Details
                       </summary>
-                      <p className="mt-1 text-red-600 break-words">{run.error}</p>
+                      <p className="mt-1 text-oxblood break-words">{run.error}</p>
                     </details>
                   )}
                 </div>

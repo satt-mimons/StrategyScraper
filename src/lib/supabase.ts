@@ -162,6 +162,33 @@ export async function getNewsletterContentByRunId(
   return data as { html: string } | null;
 }
 
+/** Content metadata (word count + markdown for a pull quote) keyed by run id. */
+export async function getNewsletterMetaByRunIds(
+  runIds: string[]
+): Promise<Map<string, { word_count: number; markdown: string }>> {
+  const result = new Map<string, { word_count: number; markdown: string }>();
+  if (runIds.length === 0) return result;
+  const { data, error } = await getSupabase()
+    .from("newsletters")
+    .select("run_id, word_count, markdown")
+    .in("run_id", runIds);
+  if (error) throw error;
+  for (const row of (data ?? []) as {
+    run_id: string;
+    word_count: number | null;
+    markdown: string | null;
+  }[]) {
+    // Keep the first (newest insert) per run id.
+    if (!result.has(row.run_id)) {
+      result.set(row.run_id, {
+        word_count: row.word_count ?? 0,
+        markdown: row.markdown ?? "",
+      });
+    }
+  }
+  return result;
+}
+
 export async function getRun(runId: string): Promise<Run | null> {
   const { data, error } = await getSupabase()
     .from("runs")

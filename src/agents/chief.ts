@@ -14,7 +14,7 @@ import {
 } from "@/agents/cluster";
 import { runReporterAgent } from "@/agents/reporter";
 import { runEditorAgent } from "@/agents/editor";
-import { runDesignAgent, inferBrand, markdownToPlainHtml } from "@/agents/design";
+import { renderNewsletterHtml, inferBrand } from "@/agents/design";
 import { createCostTracker, estimateCost, checkCostCap } from "@/lib/anthropic";
 import { sendNewsletterEmail, sendFailureAlert, getDeliveryRecipients } from "@/lib/resend";
 import {
@@ -313,15 +313,13 @@ async function runPipelineInner(
 
     await setStage("design");
 
-    let html: string;
-    try {
-      html = await timed("design", () =>
-        runDesignAgent(polished, normalizedProfile, costTracker)
-      );
-    } catch {
-      const brand = inferBrand(normalizedProfile);
-      html = markdownToPlainHtml(polished, brand);
-    }
+    // Deterministic markdown→HTML render — no LLM call. This used to be the pipeline's
+    // largest LLM call (Sonnet, 16K output tokens) and is what pushed runs over Vercel's
+    // 300s cap. renderNewsletterHtml fails loudly if it drops any link or Further Reading.
+    const brand = inferBrand(normalizedProfile);
+    const html = await timed("design", async () =>
+      renderNewsletterHtml(polished, brand)
+    );
 
     await setStage("deliver");
 

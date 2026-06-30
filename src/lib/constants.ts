@@ -25,10 +25,12 @@ export const CADENCE_HELPER =
 /**
  * Neutral fallback palette for the generated *email* (company-agnostic). Surfaced in the
  * edit form so users see what colors their email uses when the brand fields are left blank.
- * Single source of truth — also consumed by the design agent (src/agents/design.ts).
+ * Single source of truth — also consumed by the deterministic email renderer
+ * (src/agents/design.ts). Defaults to The Desk's single accent (oxblood) so an un-branded
+ * email matches the web app's editorial palette.
  */
-export const DEFAULT_EMAIL_PRIMARY_COLOR = "#1a1a2e";
-export const DEFAULT_EMAIL_ACCENT_COLOR = "#e94560";
+export const DEFAULT_EMAIL_PRIMARY_COLOR = "#8c2f23";
+export const DEFAULT_EMAIL_ACCENT_COLOR = "#8c2f23";
 
 /** The six research lanes, surfaced under Topics without ever saying "AI". */
 export const SOURCES_CALLOUT_COPY =
@@ -161,19 +163,9 @@ export const DEFAULT_PROFILE_FREQUENCY = "weekly" as const;
 export const MAX_WORD_COUNT = 2000;
 
 /**
- * Output-token ceiling for the design stage's markdown→HTML conversion. This must be much
- * larger than the markdown's token count: the design agent emits table-based layout with
- * inline styles on every element, which inflates output 4–6×. An 8K ceiling truncated the
- * bottom of the newsletter (inline links + the Further Reading "Must read" list). Sonnet
- * supports well beyond this, so we give generous headroom and detect truncation on top.
- */
-export const DESIGN_MAX_OUTPUT_TOKENS = 16000;
-
-/**
  * Length budgeting (reporter). The reporter spends a word budget across stories in
  * relevance-priority order, giving top stories full depth and dropping the tail to
- * Further Reading — so the newsletter finishes within budget and the styled HTML stays
- * under the design stage's output-token ceiling.
+ * Further Reading — so the newsletter finishes within budget.
  */
 export const REPORTER_TLDR_WORD_RESERVE = 200;
 export const FURTHER_READING_WORD_RESERVE = 150;

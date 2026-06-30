@@ -24,6 +24,7 @@ import {
   recordSentUrls,
   isRunAlreadySent,
   getCandidatesForRun,
+  getRun,
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
 import { isDenylisted } from "@/lib/source-quality";
@@ -76,11 +77,33 @@ export async function runPipeline(
   runId: string,
   profile: Profile
 ): Promise<void> {
-  return withTimeout(
-    runPipelineInner(runId, profile),
-    PIPELINE_TIMEOUT_MS,
-    "Pipeline"
-  );
+  try {
+    await withTimeout(
+      runPipelineInner(runId, profile),
+      PIPELINE_TIMEOUT_MS,
+      "Pipeline"
+    );
+  } catch (err) {
+    // The wall-clock timeout fires via an EXTERNAL Promise.race, so its rejection never reaches
+    // runPipelineInner's own try/catch — without this, a timed-out run is left frozen as
+    // status=running until Vercel hard-kills the function. Mark it failed here. Errors thrown
+    // *inside* the pipeline are already handled (and written with richer detail) by the inner
+    // catch, so only write if the run isn't already terminal — don't clobber that.
+    const message = err instanceof Error ? err.message : String(err);
+    try {
+      const current = await getRun(runId);
+      if (current && current.status !== "done" && current.status !== "failed") {
+        await updateRun(runId, {
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          error: message,
+        });
+      }
+    } catch {
+      // Best-effort cleanup — never mask the original failure.
+    }
+    throw err;
+  }
 }
 
 async function runPipelineInner(
@@ -105,6 +128,10 @@ async function runPipelineInner(
 
   // Per-step wall-clock timing for troubleshooting where a run spends its 300s budget.
   // Persisted to runs.stage_timings (diagnostics only — not shown in the UI) and logged.
+  // Persisted INCREMENTALLY after every step: a run that blows the budget gets hard-killed by
+  // Vercel at 300s, which bypasses both the success and catch paths — so end-of-run persistence
+  // alone captures nothing for exactly the timeout case we're debugging. Writing after each
+  // step means a killed run still shows every step that completed before the wall.
   const stageTimings: StageTiming[] = [];
   async function timed<T>(step: string, fn: () => Promise<T>): Promise<T> {
     const start = Date.now();
@@ -114,6 +141,8 @@ async function runPipelineInner(
       const ms = Date.now() - start;
       stageTimings.push({ step, ms });
       console.log(`[run ${runId.slice(0, 8)}] ⏱ ${step}: ${(ms / 1000).toFixed(1)}s`);
+      // Best-effort — never let a timing write break the run.
+      await updateRun(runId, { stage_timings: stageTimings }).catch(() => {});
     }
   }
 

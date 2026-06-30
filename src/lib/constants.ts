@@ -218,7 +218,14 @@ export const PRICING = {
 };
 
 export const LANE_TIMEOUT_MS = 90_000;
-export const PIPELINE_TIMEOUT_MS = 480_000;
+// MUST stay below the generate route's `maxDuration` (300s on Vercel). The pipeline runs
+// inside the serverless invocation via `after()`; if this timeout is longer than maxDuration,
+// Vercel SIGKILLs the function before withTimeout can reject, the catch block never runs, and
+// the run is left frozen as status=running/stage=write forever. 270s leaves ~30s for the
+// catch block to mark the run failed and send the alert before the hard cap.
+export const PIPELINE_TIMEOUT_MS = 270_000;
+// Per-LLM-call ceiling so a single hung generation can't silently consume the whole budget.
+export const LLM_CALL_TIMEOUT_MS = 120_000;
 
 
 

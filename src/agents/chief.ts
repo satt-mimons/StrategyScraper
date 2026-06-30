@@ -35,7 +35,42 @@ import {
   withTimeout,
 } from "@/lib/utils";
 import { LANE_TIMEOUT_MS, PIPELINE_TIMEOUT_MS } from "@/lib/constants";
-import type { Candidate, LaneResult, PipelineContext, PipelineStage, Profile } from "@/types";
+import type {
+  Candidate,
+  LaneResult,
+  PipelineContext,
+  PipelineStage,
+  Profile,
+  StageTiming,
+} from "@/types";
+
+/**
+ * Log a one-line total + per-step breakdown to the function logs, then best-effort persist to
+ * runs.stage_timings. Kept separate from the main status update (and swallowing its own errors)
+ * so a missing column — e.g. migration 009 not yet applied — can never fail an otherwise-good
+ * run. The log line is always emitted regardless.
+ */
+async function persistStageTimings(
+  runId: string,
+  timings: StageTiming[]
+): Promise<void> {
+  if (timings.length === 0) return;
+  const totalMs = timings.reduce((sum, t) => sum + t.ms, 0);
+  const breakdown = timings
+    .map((t) => `${t.step} ${(t.ms / 1000).toFixed(1)}s`)
+    .join(" · ");
+  console.log(
+    `[run ${runId.slice(0, 8)}] ⏱ total ${(totalMs / 1000).toFixed(1)}s — ${breakdown}`
+  );
+  try {
+    await updateRun(runId, { stage_timings: timings });
+  } catch (err) {
+    console.warn(
+      `[run ${runId.slice(0, 8)}] Could not persist stage_timings — run supabase/migrations/009_runs_stage_timings.sql:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
 
 export async function runPipeline(
   runId: string,
@@ -68,6 +103,20 @@ async function runPipelineInner(
     await updateRun(runId, { stage });
   }
 
+  // Per-step wall-clock timing for troubleshooting where a run spends its 300s budget.
+  // Persisted to runs.stage_timings (diagnostics only — not shown in the UI) and logged.
+  const stageTimings: StageTiming[] = [];
+  async function timed<T>(step: string, fn: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    try {
+      return await fn();
+    } finally {
+      const ms = Date.now() - start;
+      stageTimings.push({ step, ms });
+      console.log(`[run ${runId.slice(0, 8)}] ⏱ ${step}: ${(ms / 1000).toFixed(1)}s`);
+    }
+  }
+
   await updateRun(runId, {
     status: "running",
     stage: "research",
@@ -94,19 +143,21 @@ async function runPipelineInner(
 
   try {
     // Phase 1: all six research lanes in parallel (see LANE_REGISTRY)
-    const settledResults = await Promise.allSettled(
-      LANE_REGISTRY.map(async ({ id, runner }) => {
-        try {
-          return await withTimeout(runner(ctx), LANE_TIMEOUT_MS, `Lane ${id}`);
-        } catch (err) {
-          return {
-            lane: id,
-            candidates: [],
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          } as LaneResult;
-        }
-      })
+    const settledResults = await timed("research", () =>
+      Promise.allSettled(
+        LANE_REGISTRY.map(async ({ id, runner }) => {
+          try {
+            return await withTimeout(runner(ctx), LANE_TIMEOUT_MS, `Lane ${id}`);
+          } catch (err) {
+            return {
+              lane: id,
+              candidates: [],
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            } as LaneResult;
+          }
+        })
+      )
     );
 
     const laneResults: LaneResult[] = settledResults.map((settled, i) => {
@@ -188,20 +239,16 @@ async function runPipelineInner(
       )
     );
 
-    const allClusters = await runClusterAgent(
-      pool,
-      normalizedProfile,
-      costTracker
+    const allClusters = await timed("cluster", () =>
+      runClusterAgent(pool, normalizedProfile, costTracker)
     );
 
     if (allClusters.length === 0) {
       throw new Error("Cluster agent produced zero distinct stories");
     }
 
-    const clusteredStories = await runFilterAgent(
-      allClusters,
-      normalizedProfile,
-      costTracker
+    const clusteredStories = await timed("filter", () =>
+      runFilterAgent(allClusters, normalizedProfile, costTracker)
     );
 
     const flatSources = flattenClusterSources(clusteredStories);
@@ -228,23 +275,20 @@ async function runPipelineInner(
 
     await setStage("write");
 
-    const draft = await runReporterAgent(
-      clusteredStories,
-      normalizedProfile,
-      costTracker
+    const draft = await timed("write:reporter", () =>
+      runReporterAgent(clusteredStories, normalizedProfile, costTracker)
     );
-    const polished = await runEditorAgent(
-      draft,
-      flatSources,
-      normalizedProfile,
-      costTracker
+    const polished = await timed("write:editor", () =>
+      runEditorAgent(draft, flatSources, normalizedProfile, costTracker)
     );
 
     await setStage("design");
 
     let html: string;
     try {
-      html = await runDesignAgent(polished, normalizedProfile, costTracker);
+      html = await timed("design", () =>
+        runDesignAgent(polished, normalizedProfile, costTracker)
+      );
     } catch {
       const brand = inferBrand(normalizedProfile);
       html = markdownToPlainHtml(polished, brand);
@@ -256,25 +300,28 @@ async function runPipelineInner(
     const deliveryRecipients = getDeliveryRecipients(normalizedProfile.recipients);
 
     const alreadySent = await isRunAlreadySent(runId);
-    try {
-      if (!alreadySent && deliveryRecipients.length > 0) {
-        const subject = `${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
-        await sendNewsletterEmail(
-          deliveryRecipients,
-          subject,
-          html,
-          normalizedProfile.reply_to || undefined
-        );
+    await timed("deliver", async () => {
+      try {
+        if (!alreadySent && deliveryRecipients.length > 0) {
+          const subject = `${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
+          await sendNewsletterEmail(
+            deliveryRecipients,
+            subject,
+            html,
+            normalizedProfile.reply_to || undefined
+          );
 
-        await recordSentUrls(allClusterUrls(clusteredStories));
+          await recordSentUrls(allClusterUrls(clusteredStories));
+        }
+
+        await saveNewsletter(runId, html, polished, wordCount);
+      } catch (sendErr) {
+        await saveNewsletter(runId, html, polished, wordCount).catch(() => {});
+        throw sendErr;
       }
+    });
 
-      await saveNewsletter(runId, html, polished, wordCount);
-    } catch (sendErr) {
-      await saveNewsletter(runId, html, polished, wordCount).catch(() => {});
-      throw sendErr;
-    }
-
+    await persistStageTimings(runId, stageTimings);
     await updateRun(runId, {
       status: "done",
       finished_at: new Date().toISOString(),
@@ -286,6 +333,9 @@ async function runPipelineInner(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
 
+    // Persist whatever steps completed before the failure — these timings show how close the
+    // run got to the 300s cap and which step ran long.
+    await persistStageTimings(runId, stageTimings);
     await updateRun(runId, {
       status: "failed",
       finished_at: new Date().toISOString(),

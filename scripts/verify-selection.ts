@@ -28,7 +28,7 @@ try {
 import {
   getProfile,
   getCandidatesForRun,
-  getRecentRuns,
+  getSupabase,
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
 import { isDenylisted } from "@/lib/source-quality";
@@ -50,8 +50,15 @@ async function main() {
   if (runId) {
     candidates = await getCandidatesForRun(runId);
   } else {
-    const runs = await getRecentRuns(10);
-    for (const r of runs) {
+    // Runs are scoped per-newsletter; pull the 10 most recent across all
+    // newsletters so this offline check works without a newsletter id.
+    const { data: runs, error } = await getSupabase()
+      .from("runs")
+      .select("id")
+      .order("created_at", { ascending: false })
+      .limit(10);
+    if (error) throw error;
+    for (const r of runs ?? []) {
       const c = await getCandidatesForRun(r.id);
       if (c.length > 0) {
         runId = r.id;

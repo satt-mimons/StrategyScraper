@@ -11,11 +11,13 @@ import type { CostTracker, Profile, SelectedStory } from "@/types";
 
 /**
  * Token ceiling for the editor's patch payload. The editor no longer re-emits the whole
- * ~2000-word newsletter — it returns only the spans it wants to change as JSON edit ops —
- * so a few KB of output is plenty. Kept well above a normal patch set so a legitimately
- * heavy edit isn't truncated, but far below the old full-regeneration budget of 8192.
+ * ~2000-word newsletter — it returns only the spans it wants to change as JSON edit ops.
+ * But each op carries BOTH `find` (verbatim draft text) and `replace` (edited text) plus a
+ * reason, so a heavy edit pass roughly doubles the edited byte count. 2048 was too tight and
+ * truncated mid-string on large edit sets, which surfaced downstream as an "Unterminated
+ * string in JSON" parse crash. 8192 gives comfortable headroom for a full-document polish.
  */
-const EDITOR_PATCH_MAX_TOKENS = 2048;
+const EDITOR_PATCH_MAX_TOKENS = 8192;
 
 export async function runEditorAgent(
   draft: string,
@@ -72,17 +74,33 @@ Return ONLY the JSON array of edit operations.`;
     allowed_urls: [...allowedUrls],
   });
 
-  const editResponse = await callLLM(
-    "sonnet",
-    system,
-    user,
-    tracker,
-    EDITOR_PATCH_MAX_TOKENS
-  );
-  const ops = parseJsonFromLLM<EditOp[]>(editResponse);
-  // Apply the editor's spans deterministically. applyEditPatches throws if any `find` is
-  // missing or ambiguous — we surface that rather than shipping a partially-edited draft.
-  let polished = applyEditPatches(draft, ops);
+  // The editor is a polish layer over an already-complete, valid reporter draft. If the patch
+  // step fails — truncated output, malformed JSON, or a `find` span that no longer matches — we
+  // must NOT nuke the whole run. Log loudly and fall back to the unedited draft; a slightly
+  // less-polished newsletter beats a failed generation. throwOnTruncation turns a silent cut-off
+  // into a clear error instead of a cryptic "Unterminated string in JSON" from JSON.parse.
+  let polished: string;
+  try {
+    const editResponse = await callLLM(
+      "sonnet",
+      system,
+      user,
+      tracker,
+      EDITOR_PATCH_MAX_TOKENS,
+      { throwOnTruncation: true }
+    );
+    const ops = parseJsonFromLLM<EditOp[]>(editResponse);
+    // Apply the editor's spans deterministically. applyEditPatches throws if any `find` is
+    // missing or ambiguous — we surface that rather than shipping a partially-edited draft.
+    polished = applyEditPatches(draft, ops);
+  } catch (err) {
+    console.error(
+      `[editor] patch pass failed, shipping unedited reporter draft: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+    polished = draft;
+  }
 
   const integrity = validateLinkIntegrity(polished, allowedUrls);
   if (!integrity.valid) {

@@ -1,35 +1,18 @@
 /**
- * End-to-end verification of the design stage (markdown -> HTML), where inline links and
- * the bottom Further Reading list were previously being silently truncated.
+ * Verification of the design stage (markdown -> HTML), where inline links and the bottom
+ * Further Reading list were previously being silently truncated by the design LLM.
  *
- * Runs the REAL design LLM against a realistic full-length newsletter and asserts:
- *   1. runDesignAgent preserves every inline link + the Further Reading section
- *   2. callLLM(throwOnTruncation) actually throws when output is cut at max_tokens
- *   3. markdownToPlainHtml fallback (chief's catch path) preserves everything losslessly
+ * The design stage is now a DETERMINISTIC renderer (no LLM) — renderNewsletterHtml. This
+ * script runs it against a realistic full-length newsletter and asserts:
+ *   1. renderNewsletterHtml preserves every inline link + the Further Reading section
+ *   2. the output is email-safe (table-based layout, inline styles, no <style>/<script>)
+ *   3. the fidelity guardrail throws loudly when a link would be dropped
  *
- * Sends no email and runs no research lanes. Cost: one ~real Sonnet HTML render + one tiny
- * (intentionally truncated) call.
+ * No LLM calls, no email, no research lanes, no cost, no API key required.
  *
  * Usage: npx tsx scripts/verify-design-fidelity.ts
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-// Load .env.local into process.env (same loader as verify-selection.ts).
-try {
-  const env = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
-  for (const line of env.split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (m && !process.env[m[1]]) {
-      process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
-    }
-  }
-} catch {
-  // fall through — env may already be set
-}
-
-import { runDesignAgent, inferBrand, markdownToPlainHtml } from "@/agents/design";
-import { callLLM, createCostTracker, estimateCost } from "@/lib/anthropic";
+import { renderNewsletterHtml, inferBrand } from "@/agents/design";
 import { extractMarkdownLinks } from "@/lib/utils";
 import type { Profile } from "@/types";
 
@@ -99,81 +82,79 @@ function missingLinks(md: string, html: string): string[] {
   return [...new Set(extractMarkdownLinks(md))].filter((u) => !decoded.includes(u));
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const links = [...new Set(extractMarkdownLinks(MARKDOWN))];
   console.log(
     `Input newsletter: ~${approxWords(MARKDOWN)} words, ${links.length} distinct links\n`
   );
 
   let failures = 0;
+  const brand = inferBrand(PROFILE);
 
-  // --- Test 1: real design LLM preserves links + Further Reading -------------------------
-  console.log("[1] runDesignAgent (real Sonnet render at 16K ceiling)…");
-  const tracker = createCostTracker();
-  try {
-    const html = await runDesignAgent(MARKDOWN, PROFILE, tracker);
-    const missing = missingLinks(MARKDOWN, html);
-    const hasFR = /further reading/i.test(html);
-    const looksHtml = /<table|<td|<a\s/i.test(html);
-    console.log(`    output: ${html.length} chars HTML`);
-    console.log(`    links preserved: ${links.length - missing.length}/${links.length}`);
-    console.log(`    Further Reading present: ${hasFR}`);
-    console.log(`    looks like styled HTML: ${looksHtml}`);
-    console.log(`    est. cost so far: $${estimateCost(tracker).toFixed(4)}`);
-    if (missing.length > 0) {
-      console.log(`    ✗ MISSING LINKS:\n      ${missing.join("\n      ")}`);
-      failures++;
-    } else if (!hasFR || !looksHtml) {
-      console.log("    ✗ structural check failed");
-      failures++;
-    } else {
-      console.log("    ✓ PASS — all links + Further Reading survived conversion");
-    }
-  } catch (err) {
-    console.log(`    ✗ runDesignAgent threw: ${err instanceof Error ? err.message : err}`);
+  // --- Test 1: deterministic render preserves links + Further Reading --------------------
+  console.log("[1] renderNewsletterHtml (deterministic — no LLM)…");
+  const html = renderNewsletterHtml(MARKDOWN, brand);
+  const missing = missingLinks(MARKDOWN, html);
+  const hasFR = /further reading/i.test(html);
+  const looksHtml = /<table|<td|<a\s/i.test(html);
+  console.log(`    output: ${html.length} chars HTML`);
+  console.log(`    links preserved: ${links.length - missing.length}/${links.length}`);
+  console.log(`    Further Reading present: ${hasFR}`);
+  console.log(`    looks like styled HTML: ${looksHtml}`);
+  if (missing.length > 0) {
+    console.log(`    ✗ MISSING LINKS:\n      ${missing.join("\n      ")}`);
+    failures++;
+  } else if (!hasFR || !looksHtml) {
+    console.log("    ✗ structural check failed");
+    failures++;
+  } else {
+    console.log("    ✓ PASS — all links + Further Reading survived conversion");
+  }
+
+  // --- Test 2: output is email-client safe ----------------------------------------------
+  console.log("\n[2] email-safety checks (table layout, inline styles only)…");
+  const noStyleBlock = !/<style[\s>]/i.test(html);
+  const noScript = !/<script[\s>]/i.test(html);
+  const noFlexGrid = !/display\s*:\s*(flex|grid)/i.test(html);
+  const hasInlineStyles = /style="/.test(html);
+  const hasMaxWidth = /max-width:\s*600px/i.test(html);
+  console.log(`    no <style> block: ${noStyleBlock}`);
+  console.log(`    no <script>: ${noScript}`);
+  console.log(`    no flex/grid: ${noFlexGrid}`);
+  console.log(`    inline styles present: ${hasInlineStyles}`);
+  console.log(`    600px container: ${hasMaxWidth}`);
+  if (noStyleBlock && noScript && noFlexGrid && hasInlineStyles && hasMaxWidth) {
+    console.log("    ✓ PASS — email-safe output");
+  } else {
+    console.log("    ✗ email-safety check failed");
     failures++;
   }
 
-  // --- Test 2: truncation is detected (the old silent-failure mode) ----------------------
-  console.log("\n[2] callLLM throwOnTruncation at a tiny ceiling (must throw)…");
+  // --- Test 3: the fidelity guardrail throws loudly on dropped/mangled content -----------
+  console.log("\n[3] guardrail throws when a source link can't be rendered faithfully…");
+  // A URL containing a raw "<" is HTML-escaped to "&lt;" in the emitted href, so the styled
+  // HTML no longer contains the literal source URL — exactly the "link silently dropped or
+  // mangled" condition the guardrail exists to catch (extractMarkdownLinks still returns the
+  // raw URL, so the comparison mismatches and renderNewsletterHtml must throw).
   try {
-    await callLLM(
-      "sonnet",
-      "Convert this markdown to fully inline-styled HTML email.",
-      MARKDOWN,
-      createCostTracker(),
-      64, // intentionally too small -> max_tokens stop
-      { throwOnTruncation: true }
+    renderNewsletterHtml(
+      `${MARKDOWN}\n\n- [mangled](https://example.com/q<dropped)`,
+      brand
     );
-    console.log("    ✗ did NOT throw — truncation went undetected");
+    console.log("    ✗ did NOT throw — a mangled link went undetected");
     failures++;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (/truncat/i.test(msg)) {
-      console.log(`    ✓ PASS — truncation detected: "${msg}"`);
+    if (/dropped .* source link/i.test(msg)) {
+      console.log(`    ✓ PASS — guardrail fired: "${msg}"`);
     } else {
       console.log(`    ✗ threw unexpected error: ${msg}`);
       failures++;
     }
   }
 
-  // --- Test 3: deterministic fallback (chief's catch path) is lossless -------------------
-  console.log("\n[3] markdownToPlainHtml fallback preserves links + Further Reading…");
-  const fallback = markdownToPlainHtml(MARKDOWN, inferBrand(PROFILE));
-  const fbMissing = missingLinks(MARKDOWN, fallback);
-  const fbHasFR = /further reading/i.test(fallback);
-  if (fbMissing.length === 0 && fbHasFR) {
-    console.log(`    ✓ PASS — ${links.length}/${links.length} links + Further Reading intact`);
-  } else {
-    console.log(`    ✗ fallback lost ${fbMissing.length} links / FR present: ${fbHasFR}`);
-    failures++;
-  }
-
   console.log(`\n${failures === 0 ? "✅ ALL CHECKS PASSED" : `❌ ${failures} CHECK(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();

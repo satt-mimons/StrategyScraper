@@ -1,6 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { CostTracker } from "@/types";
-import { PRICING, RUN_COST_CAP_USD, RUN_COST_WARN_USD } from "@/lib/constants";
+import {
+  LLM_CALL_TIMEOUT_MS,
+  PRICING,
+  RUN_COST_CAP_USD,
+  RUN_COST_WARN_USD,
+} from "@/lib/constants";
 
 let client: Anthropic | null = null;
 
@@ -99,12 +104,17 @@ export async function callLLM(
     tracker.costWarnFlagged = true;
   }
 
-  const response = await getClient().messages.create({
-    model: MODELS[model],
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: "user", content: user }],
-  });
+  const response = await getClient().messages.create(
+    {
+      model: MODELS[model],
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content: user }],
+    },
+    // Per-call ceiling so one hung request can't burn the whole pipeline budget. The SDK
+    // aborts and throws when exceeded, which surfaces to the pipeline catch block.
+    { timeout: LLM_CALL_TIMEOUT_MS }
+  );
 
   const usage = response.usage;
   if (model === "opus") {

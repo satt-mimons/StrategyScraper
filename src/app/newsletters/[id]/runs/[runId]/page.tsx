@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { PipelineStage, Run } from "@/types";
@@ -13,6 +13,19 @@ const STEPS: { stage: PipelineStage; label: string }[] = [
   { stage: "design", label: "Design" },
   { stage: "deliver", label: "Deliver" },
 ];
+
+// A run can't outlive the serverless function that drives it (generate route maxDuration is
+// 300s). If a run is still queued/running well past that cap, the function was killed (e.g.
+// a Vercel timeout) before its catch block could mark the run failed — so surface it as
+// failed rather than spinning on "Write" forever. Buffer past 300s avoids false positives
+// from a slow cold start. See PIPELINE_TIMEOUT_MS in lib/constants.
+const STALE_AFTER_MS = 360_000;
+
+function isRunStale(run: Run): boolean {
+  if (run.status === "done" || run.status === "failed") return false;
+  const startedMs = new Date(run.started_at ?? run.created_at).getTime();
+  return Date.now() - startedMs > STALE_AFTER_MS;
+}
 
 function stepState(
   stepIndex: number,
@@ -31,6 +44,7 @@ export default function GenerationProgressPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const runRef = useRef<Run | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +57,9 @@ export default function GenerationProgressPage() {
           setError(data.error || "Failed to load run status");
           return;
         }
-        setRun(data.run as Run);
+        const next = data.run as Run;
+        runRef.current = next;
+        setRun(next);
       } catch {
         if (!cancelled) setError("Failed to load run status");
       }
@@ -51,7 +67,14 @@ export default function GenerationProgressPage() {
 
     poll();
     const interval = setInterval(() => {
-      if (run?.status === "done" || run?.status === "failed") {
+      // Stop polling once the run is terminal OR has gone stale (the driving function was
+      // killed and will never update the row again). Read from the ref so the check sees the
+      // latest fetched run, not the value captured when the effect ran.
+      const latest = runRef.current;
+      if (
+        latest &&
+        (latest.status === "done" || latest.status === "failed" || isRunStale(latest))
+      ) {
         clearInterval(interval);
         return;
       }
@@ -63,7 +86,7 @@ export default function GenerationProgressPage() {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.runId, run?.status]);
+  }, [params.runId]);
 
   // On completion, take the user straight to the preview (replace so Back skips this page).
   useEffect(() => {
@@ -108,6 +131,15 @@ export default function GenerationProgressPage() {
     );
   }
 
+  // Treat a stale run as failed so a killed function doesn't leave the user on an infinite
+  // spinner. run.error is null in that case, so supply a meaningful message below.
+  const stale = isRunStale(run);
+  const effectiveStatus: Run["status"] = stale ? "failed" : run.status;
+  const failureMessage =
+    stale && !run.error
+      ? "This run timed out and was stopped before it finished. Generation took longer than the server allows — please try again."
+      : friendlyGenerationError(run.error);
+
   const currentStageIndex = STEPS.findIndex((s) => s.stage === run.stage);
 
   return (
@@ -118,8 +150,8 @@ export default function GenerationProgressPage() {
 
       <ol className="space-y-4 mb-10">
         {STEPS.map((step, i) => {
-          const state = stepState(i, currentStageIndex, run.status);
-          const failed = run.status === "failed" && i === currentStageIndex;
+          const state = stepState(i, currentStageIndex, effectiveStatus);
+          const failed = effectiveStatus === "failed" && i === currentStageIndex;
           return (
             <li key={step.stage} className="flex items-center gap-3">
               <span className="w-6 h-6 flex items-center justify-center shrink-0">
@@ -153,10 +185,10 @@ export default function GenerationProgressPage() {
         <p className="text-sm text-gray-500 text-center">Opening preview…</p>
       )}
 
-      {run.status === "failed" && (
+      {effectiveStatus === "failed" && (
         <div className="flex flex-col items-center gap-3">
           <p className="text-sm text-red-700 text-center max-w-md">
-            {friendlyGenerationError(run.error)}
+            {failureMessage}
           </p>
           <button
             onClick={tryAgain}

@@ -14,7 +14,7 @@ import {
 } from "@/agents/cluster";
 import { runReporterAgent } from "@/agents/reporter";
 import { runEditorAgent } from "@/agents/editor";
-import { runDesignAgent, inferBrand, markdownToPlainHtml } from "@/agents/design";
+import { renderNewsletterHtml, inferBrand } from "@/agents/design";
 import { createCostTracker, estimateCost, checkCostCap } from "@/lib/anthropic";
 import { sendNewsletterEmail, sendFailureAlert, getDeliveryRecipients } from "@/lib/resend";
 import {
@@ -24,6 +24,7 @@ import {
   recordSentUrls,
   isRunAlreadySent,
   getCandidatesForRun,
+  getRun,
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
 import { isDenylisted } from "@/lib/source-quality";
@@ -35,17 +36,74 @@ import {
   withTimeout,
 } from "@/lib/utils";
 import { LANE_TIMEOUT_MS, PIPELINE_TIMEOUT_MS } from "@/lib/constants";
-import type { Candidate, LaneResult, PipelineContext, PipelineStage, Profile } from "@/types";
+import type {
+  Candidate,
+  LaneResult,
+  PipelineContext,
+  PipelineStage,
+  Profile,
+  StageTiming,
+} from "@/types";
+
+/**
+ * Log a one-line total + per-step breakdown to the function logs, then best-effort persist to
+ * runs.stage_timings. Kept separate from the main status update (and swallowing its own errors)
+ * so a missing column — e.g. migration 009 not yet applied — can never fail an otherwise-good
+ * run. The log line is always emitted regardless.
+ */
+async function persistStageTimings(
+  runId: string,
+  timings: StageTiming[]
+): Promise<void> {
+  if (timings.length === 0) return;
+  const totalMs = timings.reduce((sum, t) => sum + t.ms, 0);
+  const breakdown = timings
+    .map((t) => `${t.step} ${(t.ms / 1000).toFixed(1)}s`)
+    .join(" · ");
+  console.log(
+    `[run ${runId.slice(0, 8)}] ⏱ total ${(totalMs / 1000).toFixed(1)}s — ${breakdown}`
+  );
+  try {
+    await updateRun(runId, { stage_timings: timings });
+  } catch (err) {
+    console.warn(
+      `[run ${runId.slice(0, 8)}] Could not persist stage_timings — run supabase/migrations/009_runs_stage_timings.sql:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
 
 export async function runPipeline(
   runId: string,
   profile: Profile
 ): Promise<void> {
-  return withTimeout(
-    runPipelineInner(runId, profile),
-    PIPELINE_TIMEOUT_MS,
-    "Pipeline"
-  );
+  try {
+    await withTimeout(
+      runPipelineInner(runId, profile),
+      PIPELINE_TIMEOUT_MS,
+      "Pipeline"
+    );
+  } catch (err) {
+    // The wall-clock timeout fires via an EXTERNAL Promise.race, so its rejection never reaches
+    // runPipelineInner's own try/catch — without this, a timed-out run is left frozen as
+    // status=running until Vercel hard-kills the function. Mark it failed here. Errors thrown
+    // *inside* the pipeline are already handled (and written with richer detail) by the inner
+    // catch, so only write if the run isn't already terminal — don't clobber that.
+    const message = err instanceof Error ? err.message : String(err);
+    try {
+      const current = await getRun(runId);
+      if (current && current.status !== "done" && current.status !== "failed") {
+        await updateRun(runId, {
+          status: "failed",
+          finished_at: new Date().toISOString(),
+          error: message,
+        });
+      }
+    } catch {
+      // Best-effort cleanup — never mask the original failure.
+    }
+    throw err;
+  }
 }
 
 async function runPipelineInner(
@@ -66,6 +124,26 @@ async function runPipelineInner(
 
   async function setStage(stage: PipelineStage): Promise<void> {
     await updateRun(runId, { stage });
+  }
+
+  // Per-step wall-clock timing for troubleshooting where a run spends its 300s budget.
+  // Persisted to runs.stage_timings (diagnostics only — not shown in the UI) and logged.
+  // Persisted INCREMENTALLY after every step: a run that blows the budget gets hard-killed by
+  // Vercel at 300s, which bypasses both the success and catch paths — so end-of-run persistence
+  // alone captures nothing for exactly the timeout case we're debugging. Writing after each
+  // step means a killed run still shows every step that completed before the wall.
+  const stageTimings: StageTiming[] = [];
+  async function timed<T>(step: string, fn: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    try {
+      return await fn();
+    } finally {
+      const ms = Date.now() - start;
+      stageTimings.push({ step, ms });
+      console.log(`[run ${runId.slice(0, 8)}] ⏱ ${step}: ${(ms / 1000).toFixed(1)}s`);
+      // Best-effort — never let a timing write break the run.
+      await updateRun(runId, { stage_timings: stageTimings }).catch(() => {});
+    }
   }
 
   await updateRun(runId, {
@@ -94,19 +172,21 @@ async function runPipelineInner(
 
   try {
     // Phase 1: all six research lanes in parallel (see LANE_REGISTRY)
-    const settledResults = await Promise.allSettled(
-      LANE_REGISTRY.map(async ({ id, runner }) => {
-        try {
-          return await withTimeout(runner(ctx), LANE_TIMEOUT_MS, `Lane ${id}`);
-        } catch (err) {
-          return {
-            lane: id,
-            candidates: [],
-            success: false,
-            error: err instanceof Error ? err.message : String(err),
-          } as LaneResult;
-        }
-      })
+    const settledResults = await timed("research", () =>
+      Promise.allSettled(
+        LANE_REGISTRY.map(async ({ id, runner }) => {
+          try {
+            return await withTimeout(runner(ctx), LANE_TIMEOUT_MS, `Lane ${id}`);
+          } catch (err) {
+            return {
+              lane: id,
+              candidates: [],
+              success: false,
+              error: err instanceof Error ? err.message : String(err),
+            } as LaneResult;
+          }
+        })
+      )
     );
 
     const laneResults: LaneResult[] = settledResults.map((settled, i) => {
@@ -188,20 +268,16 @@ async function runPipelineInner(
       )
     );
 
-    const allClusters = await runClusterAgent(
-      pool,
-      normalizedProfile,
-      costTracker
+    const allClusters = await timed("cluster", () =>
+      runClusterAgent(pool, normalizedProfile, costTracker)
     );
 
     if (allClusters.length === 0) {
       throw new Error("Cluster agent produced zero distinct stories");
     }
 
-    const clusteredStories = await runFilterAgent(
-      allClusters,
-      normalizedProfile,
-      costTracker
+    const clusteredStories = await timed("filter", () =>
+      runFilterAgent(allClusters, normalizedProfile, costTracker)
     );
 
     const flatSources = flattenClusterSources(clusteredStories);
@@ -228,27 +304,22 @@ async function runPipelineInner(
 
     await setStage("write");
 
-    const draft = await runReporterAgent(
-      clusteredStories,
-      normalizedProfile,
-      costTracker
+    const draft = await timed("write:reporter", () =>
+      runReporterAgent(clusteredStories, normalizedProfile, costTracker)
     );
-    const polished = await runEditorAgent(
-      draft,
-      flatSources,
-      normalizedProfile,
-      costTracker
+    const polished = await timed("write:editor", () =>
+      runEditorAgent(draft, flatSources, normalizedProfile, costTracker)
     );
 
     await setStage("design");
 
-    let html: string;
-    try {
-      html = await runDesignAgent(polished, normalizedProfile, costTracker);
-    } catch {
-      const brand = inferBrand(normalizedProfile);
-      html = markdownToPlainHtml(polished, brand);
-    }
+    // Deterministic markdown→HTML render — no LLM call. This used to be the pipeline's
+    // largest LLM call (Sonnet, 16K output tokens) and is what pushed runs over Vercel's
+    // 300s cap. renderNewsletterHtml fails loudly if it drops any link or Further Reading.
+    const brand = inferBrand(normalizedProfile);
+    const html = await timed("design", async () =>
+      renderNewsletterHtml(polished, brand)
+    );
 
     await setStage("deliver");
 
@@ -256,25 +327,28 @@ async function runPipelineInner(
     const deliveryRecipients = getDeliveryRecipients(normalizedProfile.recipients);
 
     const alreadySent = await isRunAlreadySent(runId);
-    try {
-      if (!alreadySent && deliveryRecipients.length > 0) {
-        const subject = `${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
-        await sendNewsletterEmail(
-          deliveryRecipients,
-          subject,
-          html,
-          normalizedProfile.reply_to || undefined
-        );
+    await timed("deliver", async () => {
+      try {
+        if (!alreadySent && deliveryRecipients.length > 0) {
+          const subject = `${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
+          await sendNewsletterEmail(
+            deliveryRecipients,
+            subject,
+            html,
+            normalizedProfile.reply_to || undefined
+          );
 
-        await recordSentUrls(allClusterUrls(clusteredStories));
+          await recordSentUrls(allClusterUrls(clusteredStories));
+        }
+
+        await saveNewsletter(runId, html, polished, wordCount);
+      } catch (sendErr) {
+        await saveNewsletter(runId, html, polished, wordCount).catch(() => {});
+        throw sendErr;
       }
+    });
 
-      await saveNewsletter(runId, html, polished, wordCount);
-    } catch (sendErr) {
-      await saveNewsletter(runId, html, polished, wordCount).catch(() => {});
-      throw sendErr;
-    }
-
+    await persistStageTimings(runId, stageTimings);
     await updateRun(runId, {
       status: "done",
       finished_at: new Date().toISOString(),
@@ -286,6 +360,9 @@ async function runPipelineInner(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
 
+    // Persist whatever steps completed before the failure — these timings show how close the
+    // run got to the 300s cap and which step ran long.
+    await persistStageTimings(runId, stageTimings);
     await updateRun(runId, {
       status: "failed",
       finished_at: new Date().toISOString(),

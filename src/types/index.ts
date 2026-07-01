@@ -76,7 +76,17 @@ export interface Run {
   lanes_succeeded: string[];
   lanes_failed: string[];
   lane_stats: LaneStatEntry[];
+  // Internal troubleshooting only — per-step wall-clock durations. Not surfaced in the UI.
+  stage_timings: StageTiming[];
   created_at: string;
+}
+
+/** Wall-clock duration of one pipeline step, for diagnosing where a run spends its budget. */
+export interface StageTiming {
+  // Granular label, e.g. "research", "cluster", "filter", "write:reporter",
+  // "write:editor", "design", "deliver".
+  step: string;
+  ms: number;
 }
 
 export interface LaneStatEntry {

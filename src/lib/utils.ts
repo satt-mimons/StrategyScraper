@@ -45,6 +45,24 @@ export function validateLinkIntegrity(
   return { valid: invalidUrls.length === 0, invalidUrls };
 }
 
+/**
+ * Deterministic link backstop: unwrap any markdown link whose URL is not in allowedUrls,
+ * keeping the visible text. Guarantees no out-of-set URL can ship even if an upstream LLM pass
+ * missed one. Uses the same normalization as validateLinkIntegrity so trailing-slash/hash
+ * variants of an allowed URL are not stripped.
+ */
+export function stripDisallowedLinks(
+  text: string,
+  allowedUrls: Set<string>
+): string {
+  const normalizedAllowed = new Set([...allowedUrls].map(normalizeUrl));
+  return text.replace(
+    /\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g,
+    (full, label, url) =>
+      normalizedAllowed.has(normalizeUrl(url)) ? full : label
+  );
+}
+
 function normalizeUrl(url: string): string {
   try {
     const u = new URL(url);

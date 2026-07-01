@@ -1,24 +1,32 @@
-import { callLLM, parseJsonFromLLM } from "@/lib/anthropic";
+import { callLLM } from "@/lib/anthropic";
 import {
   DEFAULT_TONE_SPEC,
   MAX_WORD_COUNT,
   TLDR_BULLET_MIN,
   TLDR_BULLET_MAX,
 } from "@/lib/constants";
-import { applyEditPatches, type EditOp } from "@/lib/patch";
-import { validateLinkIntegrity, countWordsExcludingLinks } from "@/lib/utils";
+import {
+  validateLinkIntegrity,
+  countWordsExcludingLinks,
+  stripDisallowedLinks,
+} from "@/lib/utils";
 import type { CostTracker, Profile, SelectedStory } from "@/types";
 
 /**
- * Token ceiling for the editor's patch payload. The editor no longer re-emits the whole
- * ~2000-word newsletter — it returns only the spans it wants to change as JSON edit ops.
- * But each op carries BOTH `find` (verbatim draft text) and `replace` (edited text) plus a
- * reason, so a heavy edit pass roughly doubles the edited byte count. 2048 was too tight and
- * truncated mid-string on large edit sets, which surfaced downstream as an "Unterminated
- * string in JSON" parse crash. 8192 gives comfortable headroom for a full-document polish.
+ * Output ceiling for the editor's single trim pass. It re-emits the finished newsletter
+ * (~1500–1800 words ≈ ~5–6K tokens once markdown links are counted), so this must comfortably
+ * fit the whole document. Kept above a normal newsletter but low enough that the call stays
+ * well within its wall-clock budget rather than the old verbatim-patch pass that timed out.
  */
-const EDITOR_PATCH_MAX_TOKENS = 8192;
+const EDITOR_MAX_TOKENS = 6144;
 
+/**
+ * The editor is a single deterministic-ish pass: TRIM to budget, DE-DENSIFY the bullets, and
+ * ENFORCE link integrity — all in one LLM call, then a deterministic link strip as a hard
+ * guarantee. It replaced a verbatim find/replace "voice patch" that regularly timed out on
+ * content-rich drafts; the voice now lives in the reporter (§14). Link integrity moved here
+ * too, so the reporter no longer pays for a second self-correcting generation.
+ */
 export async function runEditorAgent(
   draft: string,
   stories: SelectedStory[],
@@ -28,99 +36,68 @@ export async function runEditorAgent(
   const allowedUrls = new Set(stories.map((s) => s.url));
   const toneSpec = profile.tone_spec || DEFAULT_TONE_SPEC;
 
-  const system = `You are an editor agent polishing a newsletter draft (§10).
+  const system = `You are an editor condensing a strategy newsletter to its final form (§10). You receive a draft and a list of allowed_urls. Do ALL of the following in ONE pass and return the finished markdown only:
 
-You do NOT rewrite the whole document. Instead you return a JSON array of targeted edit operations that will be applied to the draft in code. Each operation is:
-{ "find": "<exact substring copied verbatim from the draft>", "replace": "<your edited text>", "reason": "<short why>" }
+1. TRIM to under ${MAX_WORD_COUNT} words (excluding link URLs). Cut secondary examples, throat-clearing, and redundancy; keep every headline claim.
+2. DE-DENSIFY the bullets — make them punchy and scannable: shorter sentences, less link-stuffing. Keep the 2–3 strongest linked claims per bullet, not every possible citation.
+3. ENFORCE LINK INTEGRITY — every markdown link URL MUST appear in allowed_urls. If a link's URL is NOT in allowed_urls, remove the hyperlink (keep the sentence text) or drop that unsupported claim. Never invent or keep any URL outside allowed_urls.
 
-Rules for edit operations:
-- "find" MUST be an exact, character-for-character substring of the draft, and it MUST be UNIQUE (appear exactly once). If a phrase you want to edit is not unique, extend "find" with enough surrounding text to make it unique.
-- Keep "find" spans small and focused — edit a bullet, a sentence, or a phrase, not the whole document. Prefer many small ops over one giant one.
-- "replace" is the polished replacement for that exact span. To leave something unchanged, simply do not emit an op for it.
-- Only emit ops that actually improve the draft against the rules below. If a span already complies, leave it alone. Returning [] is valid when the draft already meets every rule.
-- Return ONLY the JSON array. No prose, no preamble, no markdown code fences.
+Preserve EXACTLY:
+- The ## TLDR at the top (${TLDR_BULLET_MIN}–${TLDR_BULLET_MAX} bullets)
+- The ## topic sections and their order
+- One bullet per story; the **bold topic sentence** opening each bullet
+- The ## Further Reading section
+Do NOT convert topic-section bullets into paragraphs, and do NOT drop stories or sections.
 
-Apply these editorial rules when deciding what to change:
-
-FORMAT (enforce strictly) — topic sections use bullets: exactly one bullet per distinct story. Do NOT convert topic-section bullets into paragraphs, and do NOT remove bullets from topic sections — bullets there are REQUIRED.
-
-Required structure:
-- ## TLDR at top: ${TLDR_BULLET_MIN}–${TLDR_BULLET_MAX} bullets (plain bullets; bold topic-sentence pattern not required here)
-- Then ## sections titled with each user topic that has content
-- WITHIN each topic section: bullets ONLY — one bullet per distinct story. NO paragraph prose blocks
-- Each story bullet MUST open with a **bold topic sentence** stating the core point, then the sharp take with inline source links distributed THROUGHOUT (specific claims/figures linked to specific sources), not a single trailing citation
-- If the draft uses paragraph prose inside a topic section, REWRITE it as the required bullet structure — do not leave prose blocks
-- Preserve and, where a bullet is thin on links, ADD inline source links throughout it (aim for 3+ distinct sources when available); never collapse to one link
-- Mainstream NEWS sources are first-class: ensure they are represented in the bullets, not dropped in favor of niche/analyst commentary
-- Further Reading is a short per-topic "Must read" list ONLY (no "Context" list) — preserve that structure and do not add a Context section
-- Maximum ~${MAX_WORD_COUNT} words excluding link URLs
-
-VOICE (§14) — apply at the bullet level, not only in TLDR:
+Keep the voice intact while tightening (§14) — sharpen it if anything, never flatten it:
 ${toneSpec}
 
-Voice is independent of form: the Matt Levine register applies inside each story bullet's sharp take, not just in TLDR. Polish wording for dry, deadpan, analytically sharp delivery while keeping the bullet + bold-lede structure intact.
+Guardrails: humor is a delivery layer, never a distortion layer — every remaining factual claim stays accurate and sourced. Never fabricate quotes or attribute invented lines to real people. Paywalled items keep their (paywalled) label.
 
-Guardrails:
-- Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced
-- Never fabricate quotes or attribute invented lines to real, named people
-- Emulating a style is fine; reproducing any real columnist's actual text is not
-- Re-verify link integrity — only use allowed URLs; never introduce a URL that is not in allowed_urls
-- Paywalled items: headline + snippet + (paywalled) label; summarize from snippet only
-
-Return ONLY the JSON array of edit operations.`;
+Return markdown only. No preamble, no code fences.`;
 
   const user = JSON.stringify({
     draft,
     allowed_urls: [...allowedUrls],
   });
 
-  // The editor is a polish layer over an already-complete, valid reporter draft. If the patch
-  // step fails — truncated output, malformed JSON, or a `find` span that no longer matches — we
-  // must NOT nuke the whole run. Log loudly and fall back to the unedited draft; a slightly
-  // less-polished newsletter beats a failed generation. throwOnTruncation turns a silent cut-off
-  // into a clear error instead of a cryptic "Unterminated string in JSON" from JSON.parse.
+  // The editor polishes an already-complete draft — it must never fail the run. On truncation
+  // or any error, fall back to the raw draft; the deterministic link strip below then guarantees
+  // link integrity either way.
   let polished: string;
   try {
-    const editResponse = await callLLM(
+    polished = await callLLM(
       "sonnet",
       system,
       user,
       tracker,
-      EDITOR_PATCH_MAX_TOKENS,
+      EDITOR_MAX_TOKENS,
       { throwOnTruncation: true }
     );
-    const ops = parseJsonFromLLM<EditOp[]>(editResponse);
-    // Apply the editor's spans deterministically. applyEditPatches throws if any `find` is
-    // missing or ambiguous — we surface that rather than shipping a partially-edited draft.
-    polished = applyEditPatches(draft, ops);
   } catch (err) {
     console.error(
-      `[editor] patch pass failed, shipping unedited reporter draft: ${
+      `[editor] trim pass failed, shipping link-cleaned reporter draft: ${
         err instanceof Error ? err.message : String(err)
       }`
     );
     polished = draft;
   }
 
+  // Deterministic backstop. The model reliably drops out-of-set URLs, but we do not trust it to
+  // be perfect — and the reporter no longer self-corrects links upstream. Strip any link whose
+  // URL is not in the allowed set so integrity is guaranteed in code, not by the model.
   const integrity = validateLinkIntegrity(polished, allowedUrls);
   if (!integrity.valid) {
-    polished = await callLLM(
-      "sonnet",
-      `Fix these invalid URLs: ${integrity.invalidUrls.join(", ")}. Only use allowed URLs. Preserve topic-section bullet structure with bold topic sentences.`,
-      polished,
-      tracker,
-      8192
+    console.warn(
+      `[editor] stripping ${integrity.invalidUrls.length} out-of-set link(s) deterministically`
     );
+    polished = stripDisallowedLinks(polished, allowedUrls);
   }
 
   const wordCount = countWordsExcludingLinks(polished);
   if (wordCount > MAX_WORD_COUNT) {
-    polished = await callLLM(
-      "sonnet",
-      `Trim this draft to under ${MAX_WORD_COUNT} words (excluding link URLs). Preserve TLDR, topic sections as bullets (bold topic sentence + sharp take each), and Further Reading. Do not convert bullets to paragraphs.`,
-      polished,
-      tracker,
-      8192
+    console.warn(
+      `[editor] ${wordCount} words after trim (> ${MAX_WORD_COUNT} cap) — shipping as-is rather than paying for another pass`
     );
   }
 

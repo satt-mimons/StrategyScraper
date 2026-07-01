@@ -35,7 +35,11 @@ import {
   dedupeByUrl,
   withTimeout,
 } from "@/lib/utils";
-import { LANE_TIMEOUT_MS, PIPELINE_TIMEOUT_MS } from "@/lib/constants";
+import {
+  LANE_TIMEOUT_MS,
+  PIPELINE_TIMEOUT_MS,
+  EDITOR_STAGE_TIMEOUT_MS,
+} from "@/lib/constants";
 import type {
   Candidate,
   LaneResult,
@@ -307,8 +311,22 @@ async function runPipelineInner(
     const draft = await timed("write:reporter", () =>
       runReporterAgent(clusteredStories, normalizedProfile, costTracker)
     );
+    // The editor is the last expensive stage and only polishes an already-complete, valid
+    // draft — so it must never be allowed to run the pipeline into the 270s wall. Bound the
+    // whole editor stage; if it exceeds its budget (or throws), ship the unpolished draft.
     const polished = await timed("write:editor", () =>
-      runEditorAgent(draft, flatSources, normalizedProfile, costTracker)
+      withTimeout(
+        runEditorAgent(draft, flatSources, normalizedProfile, costTracker),
+        EDITOR_STAGE_TIMEOUT_MS,
+        "Editor stage"
+      ).catch((err) => {
+        console.error(
+          `[run ${runId.slice(0, 8)}] editor stage failed/timed out, shipping unedited reporter draft: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+        return draft;
+      })
     );
 
     await setStage("design");

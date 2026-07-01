@@ -218,6 +218,13 @@ export const LANE_TIMEOUT_MS = 90_000;
 export const PIPELINE_TIMEOUT_MS = 270_000;
 // Per-LLM-call ceiling so a single hung generation can't silently consume the whole budget.
 export const LLM_CALL_TIMEOUT_MS = 120_000;
+// Wall-clock budget for the WHOLE editor stage (patch pass + optional integrity/trim calls).
+// The editor is pure polish over an already-complete, valid reporter draft, and it runs LAST
+// among the expensive stages — so a slow editor is the most likely place to blow the 270s
+// pipeline budget. If it exceeds this, the pipeline ships the unpolished draft instead of
+// timing out the whole run. Sized to leave headroom after a worst-case reporter (~120s) and
+// upstream research/cluster/filter (~50s), plus a few seconds for deterministic design+deliver.
+export const EDITOR_STAGE_TIMEOUT_MS = 70_000;
 
 
 

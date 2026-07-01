@@ -1,12 +1,21 @@
-import { callLLM } from "@/lib/anthropic";
+import { callLLM, parseJsonFromLLM } from "@/lib/anthropic";
 import {
   DEFAULT_TONE_SPEC,
   MAX_WORD_COUNT,
   TLDR_BULLET_MIN,
   TLDR_BULLET_MAX,
 } from "@/lib/constants";
+import { applyEditPatches, type EditOp } from "@/lib/patch";
 import { validateLinkIntegrity, countWordsExcludingLinks } from "@/lib/utils";
 import type { CostTracker, Profile, SelectedStory } from "@/types";
+
+/**
+ * Token ceiling for the editor's patch payload. The editor no longer re-emits the whole
+ * ~2000-word newsletter — it returns only the spans it wants to change as JSON edit ops —
+ * so a few KB of output is plenty. Kept well above a normal patch set so a legitimately
+ * heavy edit isn't truncated, but far below the old full-regeneration budget of 8192.
+ */
+const EDITOR_PATCH_MAX_TOKENS = 2048;
 
 export async function runEditorAgent(
   draft: string,
@@ -18,6 +27,18 @@ export async function runEditorAgent(
   const toneSpec = profile.tone_spec || DEFAULT_TONE_SPEC;
 
   const system = `You are an editor agent polishing a newsletter draft (§10).
+
+You do NOT rewrite the whole document. Instead you return a JSON array of targeted edit operations that will be applied to the draft in code. Each operation is:
+{ "find": "<exact substring copied verbatim from the draft>", "replace": "<your edited text>", "reason": "<short why>" }
+
+Rules for edit operations:
+- "find" MUST be an exact, character-for-character substring of the draft, and it MUST be UNIQUE (appear exactly once). If a phrase you want to edit is not unique, extend "find" with enough surrounding text to make it unique.
+- Keep "find" spans small and focused — edit a bullet, a sentence, or a phrase, not the whole document. Prefer many small ops over one giant one.
+- "replace" is the polished replacement for that exact span. To leave something unchanged, simply do not emit an op for it.
+- Only emit ops that actually improve the draft against the rules below. If a span already complies, leave it alone. Returning [] is valid when the draft already meets every rule.
+- Return ONLY the JSON array. No prose, no preamble, no markdown code fences.
+
+Apply these editorial rules when deciding what to change:
 
 FORMAT (enforce strictly) — topic sections use bullets: exactly one bullet per distinct story. Do NOT convert topic-section bullets into paragraphs, and do NOT remove bullets from topic sections — bullets there are REQUIRED.
 
@@ -41,17 +62,27 @@ Guardrails:
 - Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced
 - Never fabricate quotes or attribute invented lines to real, named people
 - Emulating a style is fine; reproducing any real columnist's actual text is not
-- Re-verify link integrity — only use allowed URLs
+- Re-verify link integrity — only use allowed URLs; never introduce a URL that is not in allowed_urls
 - Paywalled items: headline + snippet + (paywalled) label; summarize from snippet only
 
-Return polished markdown only. No preamble.`;
+Return ONLY the JSON array of edit operations.`;
 
   const user = JSON.stringify({
     draft,
     allowed_urls: [...allowedUrls],
   });
 
-  let polished = await callLLM("sonnet", system, user, tracker, 8192);
+  const editResponse = await callLLM(
+    "sonnet",
+    system,
+    user,
+    tracker,
+    EDITOR_PATCH_MAX_TOKENS
+  );
+  const ops = parseJsonFromLLM<EditOp[]>(editResponse);
+  // Apply the editor's spans deterministically. applyEditPatches throws if any `find` is
+  // missing or ambiguous — we surface that rather than shipping a partially-edited draft.
+  let polished = applyEditPatches(draft, ops);
 
   const integrity = validateLinkIntegrity(polished, allowedUrls);
   if (!integrity.valid) {

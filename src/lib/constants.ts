@@ -1,9 +1,10 @@
-export const DEFAULT_TONE_SPEC = `Dry, deadpan, analytically sharp financial-commentary voice in the Matt Levine register.
-Deadpan understatement; explain serious things plainly, then undercut lightly.
-The mock-naive move: pretend we cannot see the obvious problem because that is more fun.
-Willingness to earnestly steelman an absurd thing before puncturing it.
-Occasional running bits and tangential footnotes. Short, punchy closers.
-Humor is a delivery layer, never a distortion layer — every factual claim stays accurate and sourced.`;
+export const DEFAULT_TONE_SPEC = `Full-throated Matt Levine: dry, deadpan, and unafraid to have a strong opinion. This is entertainment as much as analysis — the reader should WANT to keep reading.
+- Lead with a point of view. Don't hedge to neutrality; say what's actually going on and why it's absurd, clever, or doomed.
+- Deadpan understatement over the serious parts; explain the mechanism plainly, then land a dry, cutting aside.
+- Use the mock-naive move — pretend you can't see the obvious problem because it's funnier that way — and earnestly steelman a ridiculous thing right before puncturing it.
+- Reach for the vivid concrete image and the memorable one-liner. End each bullet on a short closer with a bit of bite.
+- Name the incentive: who's fooling themselves, who's arbitraging whom, what everyone is politely not saying.
+Hard guardrail: humor and opinion are a delivery layer, NEVER a distortion layer. Every factual claim stays accurate, sourced, and inline-linked; never fabricate quotes, numbers, or attribute invented lines to real people. Be sharp about real facts, not loose with them.`;
 
 import type { ProfileFrequency } from "@/types";
 
@@ -160,7 +161,14 @@ export const LANE_FETCH_TARGET_MIN: Record<string, number> = {
 export const SOURCE_DENYLIST_SEED = ["investing.com"];
 
 export const DEFAULT_PROFILE_FREQUENCY = "weekly" as const;
+/** Hard ceiling. The editor trims anything above this; nothing should ship over it. */
 export const MAX_WORD_COUNT = 2000;
+/**
+ * The reporter aims BELOW the hard cap so its draft lands close to final length. This keeps
+ * the editor's trim pass light (less to cut), buys pipeline-budget headroom, and pushes the
+ * reporter toward punchier, less-dense bullets at the source rather than leaning on the editor.
+ */
+export const REPORTER_WORD_TARGET = 1750;
 
 /**
  * Length budgeting (reporter). The reporter spends a word budget across stories in
@@ -218,6 +226,12 @@ export const LANE_TIMEOUT_MS = 90_000;
 export const PIPELINE_TIMEOUT_MS = 270_000;
 // Per-LLM-call ceiling so a single hung generation can't silently consume the whole budget.
 export const LLM_CALL_TIMEOUT_MS = 120_000;
+// Wall-clock budget for the WHOLE editor stage (a single trim + de-densify + link-enforcement
+// call). The editor runs LAST among the expensive stages, so a slow editor is the most likely
+// place to blow the 270s pipeline budget. If it exceeds this, the pipeline ships the
+// link-cleaned draft instead of timing out the whole run. A normal trim runs ~85s; 110s leaves
+// margin without threatening the budget (reporter ~60s + research/cluster/filter ~50s + this).
+export const EDITOR_STAGE_TIMEOUT_MS = 110_000;
 
 
 

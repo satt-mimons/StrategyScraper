@@ -13,7 +13,12 @@ function getClient(): Anthropic {
   if (!client) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
-    client = new Anthropic({ apiKey });
+    // maxRetries: 0 — the SDK otherwise silently retries a timed-out call up to twice, turning
+    // one call that hit LLM_CALL_TIMEOUT_MS into 2–3× the latency. In a pipeline with a hard
+    // 270s budget and two sequential long generations (reporter + editor), that retry is what
+    // blew the budget on every timeout we saw. Fail fast instead and let the pipeline's own
+    // per-stage timeouts + fallbacks handle a slow call, rather than compounding it invisibly.
+    client = new Anthropic({ apiKey, maxRetries: 0 });
   }
   return client;
 }

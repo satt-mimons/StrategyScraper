@@ -1,7 +1,7 @@
 import { callLLM } from "@/lib/anthropic";
 import {
   DEFAULT_TONE_SPEC,
-  MAX_WORD_COUNT,
+  REPORTER_WORD_TARGET,
   TLDR_BULLET_MIN,
   TLDR_BULLET_MAX,
   REPORTER_TLDR_WORD_RESERVE,
@@ -14,7 +14,6 @@ import {
   flattenClusterSources,
 } from "@/agents/cluster";
 import { appendFurtherReading } from "@/lib/further-reading";
-import { validateLinkIntegrity } from "@/lib/utils";
 import type { ClusteredStory, CostTracker, Profile } from "@/types";
 
 export interface StoryAllowance {
@@ -87,7 +86,7 @@ export async function runReporterAgent(
 
   // Budget the body by relevance priority; the tail moves to Further Reading only.
   const bodyBudget =
-    MAX_WORD_COUNT - REPORTER_TLDR_WORD_RESERVE - FURTHER_READING_WORD_RESERVE;
+    REPORTER_WORD_TARGET - REPORTER_TLDR_WORD_RESERVE - FURTHER_READING_WORD_RESERVE;
   const { included } = budgetStories(clusters, bodyBudget);
   const wordTargetById = new Map(
     included.map((a) => [a.cluster.cluster_id, a.wordTarget])
@@ -163,8 +162,8 @@ SECTION COMPOSITION:
 - Write a bullet for EVERY story provided — the set has already been selected and length-budgeted to fit. Do not add or invent stories, and respect each story's word_target.
 
 LENGTH (critical — the newsletter MUST finish within budget):
-- Total target ~${MAX_WORD_COUNT} words excluding hyperlink URLs: ~${REPORTER_TLDR_WORD_RESERVE} for the TLDR, the rest spent across the story bullets per their word_target.
-- Stay within budget — being concise beats running long. Further Reading is appended separately — do not write it.
+- Total target ~${REPORTER_WORD_TARGET} words excluding hyperlink URLs: ~${REPORTER_TLDR_WORD_RESERVE} for the TLDR, the rest spent across the story bullets per their word_target.
+- Stay within budget — being concise beats running long. Tight, punchy bullets read better than dense ones; do not pad. Further Reading is appended separately — do not write it.
 
 LINK & PAYWALL RULES:
 - ONLY cite URLs from allowed_urls — never invent URLs
@@ -179,23 +178,15 @@ Return markdown only. No preamble.`;
   const user = JSON.stringify({
     topic_sections: topicSections,
     included_story_count: includedClusters.length,
-    word_budget: MAX_WORD_COUNT,
+    word_budget: REPORTER_WORD_TARGET,
     tldr_word_reserve: REPORTER_TLDR_WORD_RESERVE,
     allowed_urls: [...allowedUrls],
   });
 
+  // Single pass — no self-correcting link-fix call. Link integrity is enforced downstream by
+  // the editor's trim pass and guaranteed by a deterministic strip, so the reporter no longer
+  // pays for a second full generation just to clean up URLs (see runEditorAgent).
   let draft = await callLLM("sonnet", system, user, tracker, 8192);
-
-  const integrity = validateLinkIntegrity(draft, allowedUrls);
-  if (!integrity.valid) {
-    draft = await callLLM(
-      "sonnet",
-      `Fix link integrity. Remove or replace these invalid URLs: ${integrity.invalidUrls.join(", ")}. Only use allowed URLs.`,
-      draft,
-      tracker,
-      8192
-    );
-  }
 
   draft = appendFurtherReading(draft, flatSources, topicOrder, profile);
 

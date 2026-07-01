@@ -34,8 +34,13 @@ import {
   countWordsExcludingLinks,
   dedupeByUrl,
   withTimeout,
+  stripDisallowedLinks,
 } from "@/lib/utils";
-import { LANE_TIMEOUT_MS, PIPELINE_TIMEOUT_MS } from "@/lib/constants";
+import {
+  LANE_TIMEOUT_MS,
+  PIPELINE_TIMEOUT_MS,
+  EDITOR_STAGE_TIMEOUT_MS,
+} from "@/lib/constants";
 import type {
   Candidate,
   LaneResult,
@@ -307,8 +312,27 @@ async function runPipelineInner(
     const draft = await timed("write:reporter", () =>
       runReporterAgent(clusteredStories, normalizedProfile, costTracker)
     );
+    // The editor is the last expensive stage and only polishes an already-complete draft — so
+    // it must never be allowed to run the pipeline into the 270s wall. Bound the whole stage; if
+    // it exceeds its budget (or throws), ship the draft. The draft is no longer link-checked
+    // upstream (the reporter's self-correcting call was removed), so clean links deterministically
+    // in the fallback too — link integrity must hold even when the editor never ran.
     const polished = await timed("write:editor", () =>
-      runEditorAgent(draft, flatSources, normalizedProfile, costTracker)
+      withTimeout(
+        runEditorAgent(draft, flatSources, normalizedProfile, costTracker),
+        EDITOR_STAGE_TIMEOUT_MS,
+        "Editor stage"
+      ).catch((err) => {
+        console.error(
+          `[run ${runId.slice(0, 8)}] editor stage failed/timed out, shipping link-cleaned reporter draft: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+        return stripDisallowedLinks(
+          draft,
+          new Set(flatSources.map((s) => s.url))
+        );
+      })
     );
 
     await setStage("design");

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test 'test/**/*.test.ts'"
+    "test": "node --import ./test/register-aliases.mjs --test 'test/**/*.test.ts'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

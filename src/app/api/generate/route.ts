@@ -1,8 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { runPipeline } from "@/agents/chief";
-import { createRun, getRun } from "@/lib/supabase";
+import { createRun, getRun, markRunStatus } from "@/lib/supabase";
 import { createClient } from "@/utils/supabase/server";
 import { getDeliveryRecipients } from "@/lib/resend";
+import { STOPPED_BY_USER } from "@/lib/generation-errors";
 import type { NewsletterConfig, Profile } from "@/types";
 import {
   DEFAULT_ANALYST_FIRM_DOMAINS,
@@ -125,6 +126,51 @@ export async function GET(request: Request) {
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to get run status" },
+      { status: 500 }
+    );
+  }
+}
+
+// Stop an in-flight run. The pipeline itself keeps running in the serverless function that
+// started it (we can't kill that from here), so we mark the run failed with a sentinel error;
+// the pipeline reads the run status at each stage boundary and aborts before writing or
+// sending anything further. See runPipelineInner's cancellation checkpoint.
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const runId = searchParams.get("runId");
+
+  if (!runId) {
+    return NextResponse.json({ error: "runId required" }, { status: 400 });
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+    }
+
+    const run = await getRun(runId);
+    if (!run || run.user_id !== user.id) {
+      return NextResponse.json({ error: "Run not found" }, { status: 404 });
+    }
+
+    // Already finished — nothing to stop, and we mustn't clobber a completed run.
+    if (run.status === "done" || run.status === "failed") {
+      return NextResponse.json({ stopped: false, status: run.status });
+    }
+
+    await markRunStatus(runId, "failed", {
+      finished_at: new Date().toISOString(),
+      error: STOPPED_BY_USER,
+    });
+
+    return NextResponse.json({ stopped: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to stop generation" },
       { status: 500 }
     );
   }

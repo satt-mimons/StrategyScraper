@@ -15,13 +15,14 @@ export interface SpotlightConfig {
 
 // Palette-matched defaults. The upstream component assumed a white halo on a black page; The
 // Desk is warm cream (--color-paper #f3efe5) with a single oxblood accent, so a bright white
-// spotlight would be invisible and off-brand. A faint oxblood glow reads as "the one accent"
-// following the cursor. See globals.css @theme tokens.
+// spotlight would be invisible and off-brand. A tight, saturated oxblood bubble reads as "the
+// one accent" following the cursor. Kept small + distinct (not a wide wash) and translucent
+// enough to read through. See globals.css @theme tokens.
 const DEFAULTS: Required<SpotlightConfig> = {
-  radius: 280,
-  brightness: 0.08,
+  radius: 110,
+  brightness: 0.22,
   color: "#8c2f23", // --color-oxblood
-  smoothing: 0.12,
+  smoothing: 0.15,
 };
 
 const hexToRgb = (hex: string): string => {

@@ -94,6 +94,11 @@ function dayOfWeek(y: number, m: number, d: number): number {
   return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
+/** Number of days in month `m` (1-12) of year `y`. */
+function daysInMonth(y: number, m: number): number {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
 /** Next instant of `hour:00` local time in `tz`, strictly after `from`. */
 function nextDailyAt(hour: number, tz: string, from: Date): Date {
   const { y, m, d } = localYMD(from, tz);
@@ -153,6 +158,31 @@ function nextMonthlyFirstWeekday(
 }
 
 /**
+ * Occurrence of day-of-month `dayOfMonth` at `hour:00` local in `tz`, strictly after `from`.
+ * "Monthly on the 15th", etc. A `dayOfMonth` past the current month's length clamps to that
+ * month's last day (so 31 lands on Feb 28/29, Apr 30, …) rather than skipping the month.
+ */
+function nextMonthlyByDate(
+  dayOfMonth: number,
+  hour: number,
+  tz: string,
+  from: Date
+): Date {
+  let { y, m } = localYMD(from, tz);
+  for (let iter = 0; iter < 3; iter++) {
+    const d = Math.min(dayOfMonth, daysInMonth(y, m));
+    const inst = wallTimeToUtc(y, m, d, hour, tz);
+    if (inst.getTime() > from.getTime()) return inst;
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  throw new Error("nextMonthlyByDate: no slot found (unreachable)");
+}
+
+/**
  * Next UTC instant a newsletter with this cadence should send, strictly after `from`.
  *
  * - `daily`:    every day at send_hour (send_day ignored).
@@ -160,22 +190,31 @@ function nextMonthlyFirstWeekday(
  * - `biweekly`: send_day every 14 days. When `from` is itself a send instant (the recurring
  *               case) the immediate next weekday is only +7 days, so we skip a week to keep the
  *               ~14-day cadence.
- * - `monthly`:  the first send_day of each month (e.g. "first Monday").
+ * - `monthly`:  when `send_month_day` is set, that day of the month (e.g. "the 15th"); otherwise
+ *               the first send_day of each month (e.g. "first Monday").
  *
- * @param send_day 0=Sunday..6=Saturday; required for weekly/biweekly/monthly, ignored for daily.
+ * @param send_day 0=Sunday..6=Saturday; required for weekly/biweekly and for monthly when
+ *   send_month_day is not set. Ignored for daily.
  * @param send_hour local hour 0-23 in `tz`.
  * @param tz IANA timezone name (e.g. "America/New_York").
  * @param from lower bound; the result is always strictly greater. Defaults to now.
+ * @param send_month_day monthly-only day-of-month override (1-31); null/undefined = first weekday.
  */
 export function computeNextSendAt(
   frequency: ProfileFrequency,
   send_day: number | null,
   send_hour: number,
   tz: string,
-  from: Date = new Date()
+  from: Date = new Date(),
+  send_month_day: number | null = null
 ): Date {
   if (frequency === "daily") {
     return nextDailyAt(send_hour, tz, from);
+  }
+
+  // Monthly-by-date needs no weekday anchor, so resolve it before the send_day requirement.
+  if (frequency === "monthly" && send_month_day != null) {
+    return nextMonthlyByDate(send_month_day, send_hour, tz, from);
   }
 
   if (send_day === null) {

@@ -42,7 +42,8 @@ export async function GET(request: Request) {
         nl.send_day,
         nl.send_hour,
         nl.timezone,
-        now
+        now,
+        nl.send_month_day
       );
       claimed = await claimDueSchedule(
         nl.id,

@@ -102,6 +102,33 @@ test("monthly: from past this month's first weekday advances to next month", () 
   assertInstant(next, "2026-04-06T13:00:00Z", "April is EDT");
 });
 
+test("monthly by date: next occurrence of the given day-of-month", () => {
+  // From 2026-02-05, "the 15th" at 9am. Feb 15 is still ahead → 2026-02-15, EST → 14:00 UTC.
+  const from = new Date("2026-02-05T12:00:00Z");
+  const next = computeNextSendAt("monthly", null, 9, NY, from, 15);
+  assertInstant(next, "2026-02-15T14:00:00Z");
+});
+
+test("monthly by date: past this month's day advances to next month (DST-aware)", () => {
+  // Already past Feb 15; next is Mar 15. March is EDT (-04:00) → 13:00 UTC.
+  const from = new Date("2026-02-20T12:00:00Z");
+  const next = computeNextSendAt("monthly", null, 9, NY, from, 15);
+  assertInstant(next, "2026-03-15T13:00:00Z");
+});
+
+test("monthly by date: day 31 clamps to the month's last day", () => {
+  // "The 31st" in February clamps to Feb 28 (2026 is not a leap year).
+  const from = new Date("2026-02-01T12:00:00Z");
+  const next = computeNextSendAt("monthly", null, 9, NY, from, 31);
+  assertInstant(next, "2026-02-28T14:00:00Z");
+});
+
+test("monthly by date takes precedence over send_day when both are present", () => {
+  const from = new Date("2026-02-05T12:00:00Z");
+  const byDate = computeNextSendAt("monthly", 1 /* Monday */, 9, NY, from, 15);
+  assertInstant(byDate, "2026-02-15T14:00:00Z", "the 15th wins over 'first Monday'");
+});
+
 test("send_day is required for weekly/biweekly/monthly", () => {
   assert.throws(() => computeNextSendAt("weekly", null, 9, NY, new Date()), /send_day is required/);
   assert.throws(() => computeNextSendAt("monthly", null, 9, NY, new Date()), /send_day is required/);

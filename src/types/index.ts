@@ -78,6 +78,7 @@ export interface NewsletterConfig {
   // Scheduled sending (migration 010). next_send_at is computed via src/lib/schedule.ts.
   schedule_enabled: boolean;
   send_day: number | null; // 0=Sunday..6=Saturday; null for `daily` frequency
+  send_month_day: number | null; // monthly-only override: day-of-month 1-31; null = first weekday
   send_hour: number; // 0-23, local to `timezone`
   timezone: string; // IANA name, e.g. "America/New_York"
   next_send_at: string | null; // UTC instant the cron worker should next fire

@@ -108,6 +108,7 @@ export default function EditNewsletterPage() {
         ...(row as NewsletterConfig),
         schedule_enabled: row.schedule_enabled ?? false,
         send_day: row.send_day ?? null,
+        send_month_day: row.send_month_day ?? null,
         send_hour: row.send_hour ?? 9,
         timezone: row.schedule_enabled ? row.timezone || browserTz : browserTz,
         next_send_at: row.next_send_at ?? null,
@@ -140,6 +141,9 @@ export default function EditNewsletterPage() {
       // `daily` has no anchor weekday; every other cadence needs one (default Monday).
       const sendDay =
         newsletter.frequency === "daily" ? null : (newsletter.send_day ?? 1);
+      // Day-of-month override only applies to monthly; drop it otherwise so it can't linger.
+      const sendMonthDay =
+        newsletter.frequency === "monthly" ? (newsletter.send_month_day ?? null) : null;
       // Recompute next_send_at on every save so the schedule always reflects the current
       // settings; null when disabled so the cron dispatcher ignores the row.
       const nextSendAt = newsletter.schedule_enabled
@@ -148,7 +152,8 @@ export default function EditNewsletterPage() {
             sendDay,
             newsletter.send_hour,
             newsletter.timezone,
-            new Date()
+            new Date(),
+            sendMonthDay
           ).toISOString()
         : null;
 
@@ -170,6 +175,7 @@ export default function EditNewsletterPage() {
           logo_url: newsletter.logo_url,
           schedule_enabled: newsletter.schedule_enabled,
           send_day: sendDay,
+          send_month_day: sendMonthDay,
           send_hour: newsletter.send_hour,
           timezone: newsletter.timezone,
           next_send_at: nextSendAt,
@@ -178,7 +184,7 @@ export default function EditNewsletterPage() {
         .eq("id", newsletter.id);
       if (error) throw error;
       // Reflect the persisted anchor day / next send in local state.
-      patch({ send_day: sendDay, next_send_at: nextSendAt });
+      patch({ send_day: sendDay, send_month_day: sendMonthDay, next_send_at: nextSendAt });
       return true;
     } catch (err) {
       console.error("Failed to save newsletter:", err);
@@ -447,12 +453,17 @@ export default function EditNewsletterPage() {
                 try {
                   const sendDay =
                     newsletter.frequency === "daily" ? null : (newsletter.send_day ?? 1);
+                  const sendMonthDay =
+                    newsletter.frequency === "monthly"
+                      ? (newsletter.send_month_day ?? null)
+                      : null;
                   const next = computeNextSendAt(
                     newsletter.frequency,
                     sendDay,
                     newsletter.send_hour,
                     newsletter.timezone,
-                    new Date()
+                    new Date(),
+                    sendMonthDay
                   );
                   return (
                     <p className={helperText}>
@@ -480,6 +491,29 @@ export default function EditNewsletterPage() {
             Advanced sources &amp; branding
           </summary>
           <div className="mt-4 space-y-4">
+            {newsletter.frequency === "monthly" && (
+              <Field label="Monthly send day · optional">
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={newsletter.send_month_day ?? ""}
+                  onChange={(e) =>
+                    patch({
+                      send_month_day:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  className={inputClass}
+                  placeholder="e.g. 15"
+                />
+                <p className={`${helperText} mt-2`}>
+                  Send on this day of the month. Leave blank to use the first{" "}
+                  {DAY_OPTIONS[newsletter.send_day ?? 1].label} of each month instead. Days past a
+                  month&apos;s length (e.g. 31 in February) fall back to that month&apos;s last day.
+                </p>
+              </Field>
+            )}
             <Field label="Preferred publications">
               <TagInput
                 values={newsletter.preferred_publications}

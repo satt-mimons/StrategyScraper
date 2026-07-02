@@ -10,6 +10,10 @@ alter table newsletter_configs
   -- Day of week the brief goes out, 0=Sunday .. 6=Saturday. Nullable because `daily` frequency
   -- has no anchor day. Required (enforced in app code) for weekly/biweekly/monthly.
   add column if not exists send_day smallint,
+  -- Monthly-only override: a specific day of the month (1-31) to send on instead of the "first
+  -- <send_day> of the month" default. Nullable; only consulted when frequency = 'monthly'. Days
+  -- past a month's length fall back to that month's last day (see computeNextSendAt).
+  add column if not exists send_month_day smallint,
   -- Local hour of day (0-23) in `timezone` to send at.
   add column if not exists send_hour smallint not null default 9,
   -- IANA timezone name (e.g. 'America/New_York') the send_day/send_hour are interpreted in.
@@ -24,6 +28,12 @@ alter table newsletter_configs
 alter table newsletter_configs
   add constraint newsletter_configs_send_day_range
     check (send_day is null or (send_day between 0 and 6));
+
+alter table newsletter_configs
+  drop constraint if exists newsletter_configs_send_month_day_range;
+alter table newsletter_configs
+  add constraint newsletter_configs_send_month_day_range
+    check (send_month_day is null or (send_month_day between 1 and 31));
 
 alter table newsletter_configs
   drop constraint if exists newsletter_configs_send_hour_range;

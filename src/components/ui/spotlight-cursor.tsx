@@ -19,7 +19,7 @@ export interface SpotlightConfig {
 // one accent" following the cursor. Kept small + distinct (not a wide wash) and translucent
 // enough to read through. See globals.css @theme tokens.
 const DEFAULTS: Required<SpotlightConfig> = {
-  radius: 110,
+  radius: 60,
   brightness: 0.22,
   color: "#8c2f23", // --color-oxblood
   smoothing: 0.15,
@@ -90,8 +90,12 @@ const useSpotlightEffect = (config: Required<SpotlightConfig>) => {
           currentY,
           config.radius
         );
+        // Fade out to a TRANSPARENT version of the same red — not transparent black. Fading to
+        // rgba(0,0,0,0) makes the gradient interpolate its RGB toward black on the way out,
+        // producing a muddy dark ring around the red core. Same-hue-to-zero-alpha keeps it
+        // purely red the whole way.
         gradient.addColorStop(0, `rgba(${rgbColor}, ${config.brightness})`);
-        gradient.addColorStop(1, "rgba(0,0,0,0)");
+        gradient.addColorStop(1, `rgba(${rgbColor}, 0)`);
 
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { SpotlightCursor } from "@/components/ui/spotlight-cursor";
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
@@ -32,9 +31,6 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-6">
-      {/* Ambient warm-halo cursor — palette-matched (oxblood accent), low brightness, and
-          disabled under prefers-reduced-motion. Entry screen only; kept off dense reading views. */}
-      <SpotlightCursor />
       <div className="w-full max-w-sm bg-white border border-hairline rounded-card shadow-card p-8 text-center">
         <h1 className="font-serif text-[32px] font-semibold tracking-[-0.01em] text-ink">
           The Desk<span className="text-oxblood">.</span>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Newsreader, Libre_Franklin, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import { SpotlightCursor } from "@/components/ui/spotlight-cursor";
 
 // The Desk's three voices. next/font self-hosts each and exposes a CSS variable
 // that globals.css feeds into the Tailwind font-* utilities.
@@ -42,7 +43,12 @@ export default function RootLayout({
       lang="en"
       className={`${newsreader.variable} ${libreFranklin.variable} ${ibmPlexMono.variable}`}
     >
-      <body className="antialiased min-h-screen">{children}</body>
+      <body className="antialiased min-h-screen">
+        {children}
+        {/* Ambient oxblood spotlight cursor — rendered site-wide. Fixed, pointer-events-none
+            overlay; disabled under prefers-reduced-motion. */}
+        <SpotlightCursor />
+      </body>
     </html>
   );
 }

@@ -27,6 +27,7 @@ import {
   getRun,
 } from "@/lib/supabase";
 import { normalizeProfile } from "@/lib/profile-utils";
+import { STOPPED_BY_USER } from "@/lib/generation-errors";
 import { isDenylisted } from "@/lib/source-quality";
 import { buildLaneRecencyCutoffs, isOlderThanCutoff } from "@/lib/recency";
 import {
@@ -75,6 +76,19 @@ async function persistStageTimings(
       `[run ${runId.slice(0, 8)}] Could not persist stage_timings — run supabase/migrations/009_runs_stage_timings.sql:`,
       err instanceof Error ? err.message : err
     );
+  }
+}
+
+/**
+ * Thrown by the pipeline's cancellation checkpoint when the user pressed "Stop generating"
+ * (the DELETE /api/generate handler flipped the run to failed with STOPPED_BY_USER). Carrying
+ * a dedicated type lets the catch block skip the failure-alert email — a user stop isn't an
+ * error worth paging anyone about.
+ */
+class PipelineStoppedError extends Error {
+  constructor() {
+    super(STOPPED_BY_USER);
+    this.name = "PipelineStoppedError";
   }
 }
 
@@ -127,7 +141,19 @@ async function runPipelineInner(
     costTracker,
   };
 
+  // Bail out if the user pressed "Stop generating" since the last checkpoint. The stop handler
+  // marks the run failed; the pipeline itself never writes 'failed' before its own catch, so a
+  // failed status here can only mean an external stop. Checked at every stage boundary so we
+  // never write, render, or email after a stop.
+  async function ensureNotStopped(): Promise<void> {
+    const current = await getRun(runId);
+    if (current?.status === "failed") {
+      throw new PipelineStoppedError();
+    }
+  }
+
   async function setStage(stage: PipelineStage): Promise<void> {
+    await ensureNotStopped();
     await updateRun(runId, { stage });
   }
 
@@ -397,7 +423,11 @@ async function runPipelineInner(
       lane_stats: laneStats,
     });
 
-    if (getDeliveryRecipients(normalizedProfile.recipients).length > 0) {
+    // A user-initiated stop isn't a failure worth emailing an alert about.
+    if (
+      !(err instanceof PipelineStoppedError) &&
+      getDeliveryRecipients(normalizedProfile.recipients).length > 0
+    ) {
       await sendFailureAlert(
         getDeliveryRecipients(normalizedProfile.recipients),
         runId,

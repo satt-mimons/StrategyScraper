@@ -4,15 +4,28 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { PipelineStage, Run } from "@/types";
-import { friendlyGenerationError } from "@/lib/generation-errors";
+import { friendlyGenerationError, STOPPED_BY_USER } from "@/lib/generation-errors";
+import { btnGhost, btnInk, NewspaperRule } from "@/components/desk";
 
-const STEPS: { stage: PipelineStage; label: string }[] = [
-  { stage: "research", label: "Research" },
-  { stage: "filter", label: "Filter" },
-  { stage: "write", label: "Write" },
-  { stage: "design", label: "Design" },
-  { stage: "deliver", label: "Deliver" },
+// The reader only sees the steps that involve real editorial work. The pipeline also runs a
+// "design" stage, but that's a deterministic template render with no choices to make — it's
+// folded into "Deliver" below rather than shown as its own line.
+const STEPS: { label: string }[] = [
+  { label: "Research" },
+  { label: "Filter" },
+  { label: "Write" },
+  { label: "Deliver" },
 ];
+
+// Maps the pipeline's internal stage to the visible step index above. "design" collapses into
+// the "Deliver" step (index 3) so it never surfaces on its own.
+const STAGE_TO_STEP: Record<PipelineStage, number> = {
+  research: 0,
+  filter: 1,
+  write: 2,
+  design: 3,
+  deliver: 3,
+};
 
 // A run can't outlive the serverless function that drives it (generate route maxDuration is
 // 300s). If a run is still queued/running well past that cap, the function was killed (e.g.
@@ -44,6 +57,7 @@ export default function GenerationProgressPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const runRef = useRef<Run | null>(null);
 
   useEffect(() => {
@@ -95,6 +109,17 @@ export default function GenerationProgressPage() {
     }
   }, [run?.status, router, params.id, params.runId]);
 
+  const stopGenerating = async () => {
+    setStopping(true);
+    try {
+      await fetch(`/api/generate?runId=${params.runId}`, { method: "DELETE" });
+      // Head back to the desk — the pipeline aborts itself at its next stage boundary.
+      router.push("/");
+    } catch {
+      setStopping(false);
+    }
+  };
+
   const tryAgain = async () => {
     setRetrying(true);
     try {
@@ -115,9 +140,9 @@ export default function GenerationProgressPage() {
   if (error) {
     return (
       <main className="max-w-2xl mx-auto px-6 py-16 text-center">
-        <p className="text-red-700 mb-6">{error}</p>
-        <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-          ← Back to dashboard
+        <p className="font-sans text-[15px] text-oxblood mb-6">{error}</p>
+        <Link href="/" className="font-sans text-[13px] text-ink-4 hover:text-ink-2">
+          ← Back to the desk
         </Link>
       </main>
     );
@@ -125,7 +150,7 @@ export default function GenerationProgressPage() {
 
   if (!run) {
     return (
-      <main className="max-w-2xl mx-auto px-6 py-16 text-center text-gray-500">
+      <main className="max-w-2xl mx-auto px-6 py-16 text-center font-mono text-[12px] text-ink-4">
         Loading…
       </main>
     );
@@ -135,73 +160,117 @@ export default function GenerationProgressPage() {
   // spinner. run.error is null in that case, so supply a meaningful message below.
   const stale = isRunStale(run);
   const effectiveStatus: Run["status"] = stale ? "failed" : run.status;
+  const stopped = run.error === STOPPED_BY_USER;
   const failureMessage =
     stale && !run.error
       ? "This run timed out and was stopped before it finished. Generation took longer than the server allows — please try again."
       : friendlyGenerationError(run.error);
 
-  const currentStageIndex = STEPS.findIndex((s) => s.stage === run.stage);
+  const currentStageIndex = STAGE_TO_STEP[run.stage] ?? 0;
+  const inProgress = effectiveStatus === "queued" || effectiveStatus === "running";
 
   return (
     <main className="max-w-2xl mx-auto px-6 py-16">
-      <h1 className="text-2xl font-bold tracking-tight text-center mb-10">
-        Generating Your Newsletter
-      </h1>
+      <div className="relative mx-auto max-w-md">
+        {/* Stacked-paper layers behind the card for a bit of editorial depth. */}
+        <div
+          aria-hidden
+          className="absolute inset-0 translate-y-3 rotate-[-1.2deg] rounded-card border border-hairline bg-surface"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 translate-y-1.5 rotate-[0.6deg] rounded-card border border-hairline bg-white"
+        />
 
-      <ol className="space-y-4 mb-10">
-        {STEPS.map((step, i) => {
-          const state = stepState(i, currentStageIndex, effectiveStatus);
-          const failed = effectiveStatus === "failed" && i === currentStageIndex;
-          return (
-            <li key={step.stage} className="flex items-center gap-3">
-              <span className="w-6 h-6 flex items-center justify-center shrink-0">
-                {failed ? (
-                  <span className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold">
-                    !
+        <div className="relative rounded-card border border-hairline bg-white shadow-card px-8 py-9">
+          <NewspaperRule />
+
+          <h1 className="font-serif text-[24px] font-semibold tracking-[-0.01em] text-ink text-center mt-4">
+            Generating your brief
+          </h1>
+          <p className="font-mono text-[11px] font-medium tracking-[0.12em] uppercase text-ink-4 text-center mt-2">
+            Reading the internet for you
+          </p>
+
+          <ol className="space-y-3.5 mt-8">
+            {STEPS.map((step, i) => {
+              const state = stepState(i, currentStageIndex, effectiveStatus);
+              const failed = effectiveStatus === "failed" && i === currentStageIndex;
+              return (
+                <li key={step.label} className="flex items-center gap-3">
+                  <span className="w-6 h-6 flex items-center justify-center shrink-0">
+                    {failed ? (
+                      <span className="w-5 h-5 rounded-full bg-note-bg text-oxblood border border-oxblood/30 flex items-center justify-center text-xs font-bold">
+                        !
+                      </span>
+                    ) : state === "done" ? (
+                      <span className="w-5 h-5 rounded-full bg-moss-bg text-moss flex items-center justify-center text-xs font-bold">
+                        ✓
+                      </span>
+                    ) : state === "active" ? (
+                      <span className="w-4 h-4 rounded-full border-2 border-hairline-2 border-t-oxblood animate-spin" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-hairline" />
+                    )}
                   </span>
-                ) : state === "done" ? (
-                  <span className="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-bold">
-                    ✓
+                  <span
+                    className={`font-sans text-[14px] ${
+                      state === "pending" ? "text-ink-4" : "text-ink font-medium"
+                    }`}
+                  >
+                    {step.label}
                   </span>
-                ) : state === "active" ? (
-                  <span className="w-4 h-4 rounded-full border-2 border-gray-300 border-t-blue-600 animate-spin" />
-                ) : (
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-200" />
-                )}
-              </span>
-              <span
-                className={`text-sm ${
-                  state === "pending" ? "text-gray-400" : "text-gray-900 font-medium"
+                </li>
+              );
+            })}
+          </ol>
+
+          {run.status === "done" && (
+            <p className="font-mono text-[12px] text-ink-4 text-center mt-8">
+              Opening preview…
+            </p>
+          )}
+
+          {inProgress && (
+            <div className="mt-8 pt-5 border-t border-hairline-3 flex flex-col items-center gap-1.5">
+              <button
+                type="button"
+                onClick={stopGenerating}
+                disabled={stopping}
+                className={btnGhost}
+              >
+                {stopping ? "Stopping…" : "Stop generating"}
+              </button>
+              <p className="font-mono text-[11px] text-ink-4">Usually ready in ~3 min.</p>
+            </div>
+          )}
+
+          {effectiveStatus === "failed" && (
+            <div className="mt-8 pt-5 border-t border-hairline-3 flex flex-col items-center gap-3">
+              <p
+                className={`font-sans text-[13px] text-center max-w-xs ${
+                  stopped ? "text-ink-3" : "text-oxblood"
                 }`}
               >
-                {step.label}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-
-      {run.status === "done" && (
-        <p className="text-sm text-gray-500 text-center">Opening preview…</p>
-      )}
-
-      {effectiveStatus === "failed" && (
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-sm text-red-700 text-center max-w-md">
-            {failureMessage}
-          </p>
-          <button
-            onClick={tryAgain}
-            disabled={retrying}
-            className="px-5 py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
-          >
-            {retrying ? "Starting…" : "Try Again"}
-          </button>
-          <Link href="/" className="text-sm text-gray-500 hover:text-gray-700">
-            Back to Dashboard
-          </Link>
+                {stopped ? "You stopped this generation." : failureMessage}
+              </p>
+              <button
+                onClick={tryAgain}
+                disabled={retrying}
+                className={btnInk}
+              >
+                {retrying ? "Starting…" : stopped ? "Start over" : "Try again"}
+              </button>
+              <Link
+                href="/"
+                className="font-sans text-[13px] text-ink-4 hover:text-ink-2"
+              >
+                Back to the desk
+              </Link>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </main>
   );
 }

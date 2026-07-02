@@ -32,8 +32,6 @@ interface WizardState {
   topics: string[];
   recipients: string[];
   replyTo: string;
-  primaryColor: string;
-  logoUrl: string;
 }
 
 export default function NewNewsletterWizard() {
@@ -51,8 +49,6 @@ export default function NewNewsletterWizard() {
     topics: [],
     recipients: [],
     replyTo: "",
-    primaryColor: "",
-    logoUrl: "",
   });
 
   // Default Reply-To to the logged-in user's email (the account they signed in with).
@@ -96,8 +92,8 @@ export default function NewNewsletterWizard() {
           topics: state.topics,
           recipients: state.recipients,
           reply_to: state.replyTo,
-          primary_color: state.primaryColor,
-          logo_url: state.logoUrl,
+          // Brand overrides aren't part of the create flow — they're added later when editing
+          // an existing brief. The DB columns default to empty strings.
         })
         .select()
         .single();
@@ -269,32 +265,6 @@ export default function NewNewsletterWizard() {
             />
             <p className={`${helperText} mt-2`}>Defaults to your sign-in email.</p>
           </Field>
-
-          <div className="border-t border-hairline-3 pt-5">
-            <div className="font-mono text-[11px] font-medium tracking-[0.1em] uppercase text-ink-4 mb-3">
-              Brand overrides · optional
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Primary color (hex)">
-                <input
-                  type="text"
-                  value={state.primaryColor}
-                  onChange={(e) => patch({ primaryColor: e.target.value })}
-                  className={inputClass}
-                  placeholder="#8C2F23"
-                />
-              </Field>
-              <Field label="Logo URL">
-                <input
-                  type="text"
-                  value={state.logoUrl}
-                  onChange={(e) => patch({ logoUrl: e.target.value })}
-                  className={inputClass}
-                  placeholder="https://…"
-                />
-              </Field>
-            </div>
-          </div>
         </div>
       )}
 

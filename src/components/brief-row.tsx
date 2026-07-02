@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/client";
 import { btnOxblood, EditorialTag } from "@/components/desk";
 
 export interface BriefRowData {
@@ -32,8 +33,11 @@ const TOPIC_VISIBLE = 3;
 
 export function BriefRow({ data }: { data: BriefRowData }) {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const generateNow = async () => {
     setGenerating(true);
@@ -51,6 +55,26 @@ export function BriefRow({ data }: { data: BriefRowData }) {
       console.error("Failed to start generation:", err);
       setGenerating(false);
       setError(err instanceof Error ? err.message : "Generation failed");
+    }
+  };
+
+  const deleteBrief = async () => {
+    setDeleting(true);
+    setError(null);
+    try {
+      // RLS restricts this to the owner's own row; the runs → candidates/newsletters foreign
+      // keys cascade, so removing the config cleans up its whole history.
+      const { error: deleteError } = await supabase
+        .from("newsletter_configs")
+        .delete()
+        .eq("id", data.id);
+      if (deleteError) throw deleteError;
+      router.refresh();
+    } catch (err) {
+      console.error("Failed to delete brief:", err);
+      setDeleting(false);
+      setConfirmingDelete(false);
+      setError(err instanceof Error ? err.message : "Failed to delete brief");
     }
   };
 
@@ -115,12 +139,42 @@ export function BriefRow({ data }: { data: BriefRowData }) {
                   Preview last issue →
                 </Link>
               )}
-              <Link
-                href={`/newsletters/${data.id}`}
-                className="font-sans text-[12.5px] text-ink-4 hover:text-ink-2"
-              >
-                Edit
-              </Link>
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/newsletters/${data.id}`}
+                  className="font-sans text-[12.5px] text-ink-4 hover:text-ink-2"
+                >
+                  Edit
+                </Link>
+                {confirmingDelete ? (
+                  <span className="flex items-center gap-2 font-sans text-[12.5px]">
+                    <button
+                      type="button"
+                      onClick={deleteBrief}
+                      disabled={deleting}
+                      className="font-semibold text-oxblood hover:opacity-70 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(false)}
+                      disabled={deleting}
+                      className="text-ink-4 hover:text-ink-2 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="font-sans text-[12.5px] text-ink-4 hover:text-oxblood"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

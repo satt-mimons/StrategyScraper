@@ -1,49 +1,26 @@
-import { NextResponse, after } from "next/server";
-import { runPipeline } from "@/agents/chief";
-import { createRun, getRun } from "@/lib/supabase";
+import { NextResponse } from "next/server";
+import { startRun, StartRunError } from "@/lib/run";
+import { getRun } from "@/lib/supabase";
 import { createClient } from "@/utils/supabase/server";
-import { getDeliveryRecipients } from "@/lib/resend";
-import type { NewsletterConfig, Profile } from "@/types";
-import {
-  DEFAULT_ANALYST_FIRM_DOMAINS,
-  DEFAULT_ANALYST_FIRMS,
-  DEFAULT_TONE_SPEC,
-} from "@/lib/constants";
+import type { RunMode } from "@/types";
 
 export const maxDuration = 300;
 
-function newsletterToProfile(newsletter: NewsletterConfig): Profile {
-  return {
-    id: newsletter.id,
-    company: newsletter.company,
-    role: newsletter.role,
-    topics: newsletter.topics,
-    // Tone is a single fixed house style (see DEFAULT_TONE_SPEC) — not user-configurable.
-    tone_spec: DEFAULT_TONE_SPEC,
-    preferred_pubs: newsletter.preferred_publications,
-    analyst_firms: DEFAULT_ANALYST_FIRMS,
-    analyst_firm_domains: DEFAULT_ANALYST_FIRM_DOMAINS,
-    frequency: newsletter.frequency,
-    linkedin_urls: newsletter.linkedin_urls,
-    substack_urls: newsletter.substack_urls,
-    brand_overrides: {
-      primary_color: newsletter.primary_color || undefined,
-      accent_color: newsletter.accent_color || undefined,
-      logo_url: newsletter.logo_url || undefined,
-    },
-    recipients: newsletter.recipients,
-    reply_to: newsletter.reply_to,
-    created_at: newsletter.created_at,
-    updated_at: newsletter.updated_at,
-  };
-}
-
 export async function POST(request: Request) {
   try {
-    const { newsletterId } = await request.json().catch(() => ({}));
-    if (!newsletterId) {
+    const body = await request.json().catch(() => ({}));
+    const newsletterId: unknown = body.newsletterId;
+    if (!newsletterId || typeof newsletterId !== "string") {
       return NextResponse.json({ error: "newsletterId required" }, { status: 400 });
     }
+
+    // "Generate now" defaults to a preview (goes only to the requester, never records sent URLs);
+    // the UI opts in to "live" explicitly to send the real edition. An unrecognized mode is
+    // rejected rather than silently coerced.
+    if (body.mode !== undefined && body.mode !== "live" && body.mode !== "preview") {
+      return NextResponse.json({ error: "mode must be 'live' or 'preview'." }, { status: 400 });
+    }
+    const mode: RunMode = body.mode === "live" ? "live" : "preview";
 
     const supabase = await createClient();
     const {
@@ -53,46 +30,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Not signed in." }, { status: 401 });
     }
 
-    const { data: newsletterRow } = await supabase
-      .from("newsletter_configs")
-      .select("*")
-      .eq("id", newsletterId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!newsletterRow) {
-      return NextResponse.json({ error: "Newsletter not found." }, { status: 404 });
-    }
-
-    const profile = newsletterToProfile(newsletterRow as NewsletterConfig);
-
-    if ((profile.topics ?? []).length === 0) {
-      return NextResponse.json(
-        { error: "Add at least one topic before generating." },
-        { status: 400 }
-      );
-    }
-
-    if (getDeliveryRecipients(profile.recipients ?? []).length === 0) {
-      return NextResponse.json(
-        { error: "Add at least one recipient email (or set RESEND_TO_EMAIL in .env.local)." },
-        { status: 400 }
-      );
-    }
-
-    const run = await createRun(newsletterId, user.id);
-
-    // Continue pipeline after response on Vercel (extended-duration function)
-    after(async () => {
-      try {
-        await runPipeline(run.id, profile);
-      } catch (err) {
-        console.error(`Pipeline failed for run ${run.id}:`, err);
-      }
+    const { runId } = await startRun(newsletterId, user.id, mode, {
+      previewRecipient: user.email ?? undefined,
     });
 
-    return NextResponse.json({ runId: run.id, status: "running" });
+    return NextResponse.json({ runId, status: "running", mode });
   } catch (err) {
+    if (err instanceof StartRunError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to start generation" },
       { status: 500 }

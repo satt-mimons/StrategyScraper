@@ -47,6 +47,7 @@ import type {
   PipelineContext,
   PipelineStage,
   Profile,
+  RunOptions,
   StageTiming,
 } from "@/types";
 
@@ -80,11 +81,12 @@ async function persistStageTimings(
 
 export async function runPipeline(
   runId: string,
-  profile: Profile
+  profile: Profile,
+  options: RunOptions
 ): Promise<void> {
   try {
     await withTimeout(
-      runPipelineInner(runId, profile),
+      runPipelineInner(runId, profile, options),
       PIPELINE_TIMEOUT_MS,
       "Pipeline"
     );
@@ -113,7 +115,8 @@ export async function runPipeline(
 
 async function runPipelineInner(
   runId: string,
-  profile: Profile
+  profile: Profile,
+  options: RunOptions
 ): Promise<void> {
   const costTracker = createCostTracker();
   const normalizedProfile = normalizeProfile(profile);
@@ -348,13 +351,22 @@ async function runPipelineInner(
     await setStage("deliver");
 
     const wordCount = countWordsExcludingLinks(polished);
-    const deliveryRecipients = getDeliveryRecipients(normalizedProfile.recipients);
+    // Preview runs go ONLY to the requesting user (bypassing the RESEND_TO_EMAIL override on
+    // purpose) and never touch the global sent_urls pool — a test must not suppress stories from
+    // the next real edition. Live runs behave as before: configured recipients + recordSentUrls.
+    const isPreview = options.mode === "preview";
+    const deliveryRecipients = isPreview
+      ? options.previewRecipient
+        ? [options.previewRecipient]
+        : []
+      : getDeliveryRecipients(normalizedProfile.recipients);
 
     const alreadySent = await isRunAlreadySent(runId);
     await timed("deliver", async () => {
       try {
         if (!alreadySent && deliveryRecipients.length > 0) {
-          const subject = `${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
+          const subjectPrefix = isPreview ? "[Preview] " : "";
+          const subject = `${subjectPrefix}${normalizedProfile.company || "Your"} Weekly Brief — ${new Date().toLocaleDateString()}`;
           await sendNewsletterEmail(
             deliveryRecipients,
             subject,
@@ -362,7 +374,9 @@ async function runPipelineInner(
             normalizedProfile.reply_to || undefined
           );
 
-          await recordSentUrls(allClusterUrls(clusteredStories));
+          if (!isPreview) {
+            await recordSentUrls(allClusterUrls(clusteredStories));
+          }
         }
 
         await saveNewsletter(runId, html, polished, wordCount);
@@ -397,12 +411,16 @@ async function runPipelineInner(
       lane_stats: laneStats,
     });
 
-    if (getDeliveryRecipients(normalizedProfile.recipients).length > 0) {
-      await sendFailureAlert(
-        getDeliveryRecipients(normalizedProfile.recipients),
-        runId,
-        errorMessage
-      ).catch(() => {});
+    // Alert the same audience the run would have delivered to — a preview failure must not page
+    // the real recipient list.
+    const alertRecipients =
+      options.mode === "preview"
+        ? options.previewRecipient
+          ? [options.previewRecipient]
+          : []
+        : getDeliveryRecipients(normalizedProfile.recipients);
+    if (alertRecipients.length > 0) {
+      await sendFailureAlert(alertRecipients, runId, errorMessage).catch(() => {});
     }
 
     throw err;

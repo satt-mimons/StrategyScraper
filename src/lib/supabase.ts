@@ -1,6 +1,12 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { normalizeProfile } from "@/lib/profile-utils";
-import type { Candidate, Profile, Run, RunStatus } from "@/types";
+import type {
+  Candidate,
+  NewsletterConfig,
+  Profile,
+  Run,
+  RunStatus,
+} from "@/types";
 
 let supabase: SupabaseClient | null = null;
 
@@ -84,6 +90,66 @@ export async function createRun(
     .single();
   if (error) throw error;
   return data as Run;
+}
+
+/**
+ * Fetch a single newsletter config, scoped to its owner. Uses the service-role client, so the
+ * user_id filter (not RLS) is what enforces ownership — always pass the authenticated user's id
+ * (or, for scheduled runs, the row's own user_id).
+ */
+export async function getNewsletterConfig(
+  newsletterId: string,
+  userId: string
+): Promise<NewsletterConfig | null> {
+  const { data, error } = await getSupabase()
+    .from("newsletter_configs")
+    .select("*")
+    .eq("id", newsletterId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(formatDbError(error));
+  return (data as NewsletterConfig) ?? null;
+}
+
+/**
+ * Enabled schedules whose next_send_at is due (<= now). The cron dispatcher reads these, then
+ * claims each one individually (see claimDueSchedule) before starting any pipeline.
+ */
+export async function getDueSchedules(
+  now: Date = new Date()
+): Promise<NewsletterConfig[]> {
+  const { data, error } = await getSupabase()
+    .from("newsletter_configs")
+    .select("*")
+    .eq("schedule_enabled", true)
+    .not("next_send_at", "is", null)
+    .lte("next_send_at", now.toISOString());
+  if (error) throw new Error(formatDbError(error));
+  return (data as NewsletterConfig[]) ?? [];
+}
+
+/**
+ * Atomically claim a due schedule for sending: advance next_send_at to the next occurrence and
+ * stamp last_sent_at, but ONLY if next_send_at still equals the value we read. Two overlapping
+ * cron ticks racing on the same row: the first update matches and wins, the second's WHERE no
+ * longer matches and returns zero rows. Returns true iff this caller won the claim and should
+ * start the pipeline.
+ */
+export async function claimDueSchedule(
+  newsletterId: string,
+  expectedNextSendAt: string,
+  newNextSendAt: string,
+  lastSentAt: string
+): Promise<boolean> {
+  const { data, error } = await getSupabase()
+    .from("newsletter_configs")
+    .update({ next_send_at: newNextSendAt, last_sent_at: lastSentAt })
+    .eq("id", newsletterId)
+    .eq("schedule_enabled", true)
+    .eq("next_send_at", expectedNextSendAt)
+    .select("id");
+  if (error) throw new Error(formatDbError(error));
+  return (data?.length ?? 0) > 0;
 }
 
 export async function updateRun(

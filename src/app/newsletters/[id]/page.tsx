@@ -24,11 +24,55 @@ import {
   DEFAULT_EMAIL_PRIMARY_COLOR,
   SOURCES_CALLOUT_COPY,
 } from "@/lib/constants";
+import { computeNextSendAt } from "@/lib/schedule";
 import { displayName } from "@/lib/newsletter-display";
 import { summarizeRunCoverage } from "@/lib/lane-stats";
-import type { NewsletterConfig, ProfileFrequency, Run } from "@/types";
+import type { NewsletterConfig, ProfileFrequency, RunMode, Run } from "@/types";
 
 const RUN_DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+
+const DAY_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "Sunday" },
+  { value: 1, label: "Monday" },
+  { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" },
+  { value: 4, label: "Thursday" },
+  { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+
+const HOUR_FMT = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: true });
+const HOUR_OPTIONS: { value: number; label: string }[] = Array.from({ length: 24 }, (_, h) => ({
+  value: h,
+  // Label each hour in the user's own clock convention (e.g. "9 AM", "1 PM").
+  label: HOUR_FMT.format(new Date(Date.UTC(2020, 0, 1, h))),
+}));
+
+// Full IANA zone list when the runtime supports it; a small curated fallback otherwise.
+const TIME_ZONES: string[] =
+  typeof (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf ===
+  "function"
+    ? (Intl as { supportedValuesOf: (k: string) => string[] }).supportedValuesOf("timeZone")
+    : [
+        "America/New_York",
+        "America/Chicago",
+        "America/Denver",
+        "America/Los_Angeles",
+        "Europe/London",
+        "UTC",
+      ];
+
+function formatNextSend(instant: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(instant);
+}
 
 export default function EditNewsletterPage() {
   const params = useParams<{ id: string }>();
@@ -55,7 +99,20 @@ export default function EditNewsletterPage() {
     if (error || !data) {
       setNotFound(true);
     } else {
-      setNewsletter(data as NewsletterConfig);
+      const row = data as Partial<NewsletterConfig>;
+      const browserTz =
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+      // Coalesce the scheduling fields so the form works whether or not migration 010 is applied
+      // yet, and default the timezone to the browser's for schedules the user hasn't set up.
+      setNewsletter({
+        ...(row as NewsletterConfig),
+        schedule_enabled: row.schedule_enabled ?? false,
+        send_day: row.send_day ?? null,
+        send_hour: row.send_hour ?? 9,
+        timezone: row.schedule_enabled ? row.timezone || browserTz : browserTz,
+        next_send_at: row.next_send_at ?? null,
+        last_sent_at: row.last_sent_at ?? null,
+      });
     }
     setLoading(false);
   }, [supabase, params.id]);
@@ -80,6 +137,21 @@ export default function EditNewsletterPage() {
     setSaving(true);
     setMessage(null);
     try {
+      // `daily` has no anchor weekday; every other cadence needs one (default Monday).
+      const sendDay =
+        newsletter.frequency === "daily" ? null : (newsletter.send_day ?? 1);
+      // Recompute next_send_at on every save so the schedule always reflects the current
+      // settings; null when disabled so the cron dispatcher ignores the row.
+      const nextSendAt = newsletter.schedule_enabled
+        ? computeNextSendAt(
+            newsletter.frequency,
+            sendDay,
+            newsletter.send_hour,
+            newsletter.timezone,
+            new Date()
+          ).toISOString()
+        : null;
+
       const { error } = await supabase
         .from("newsletter_configs")
         .update({
@@ -96,10 +168,17 @@ export default function EditNewsletterPage() {
           primary_color: newsletter.primary_color,
           accent_color: newsletter.accent_color,
           logo_url: newsletter.logo_url,
+          schedule_enabled: newsletter.schedule_enabled,
+          send_day: sendDay,
+          send_hour: newsletter.send_hour,
+          timezone: newsletter.timezone,
+          next_send_at: nextSendAt,
           updated_at: new Date().toISOString(),
         })
         .eq("id", newsletter.id);
       if (error) throw error;
+      // Reflect the persisted anchor day / next send in local state.
+      patch({ send_day: sendDay, next_send_at: nextSendAt });
       return true;
     } catch (err) {
       console.error("Failed to save newsletter:", err);
@@ -124,7 +203,7 @@ export default function EditNewsletterPage() {
     await load();
   };
 
-  const generateNow = async () => {
+  const generateNow = async (mode: RunMode) => {
     setGenerating(true);
     setMessage(null);
     const saved = await saveChanges();
@@ -136,7 +215,7 @@ export default function EditNewsletterPage() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ newsletterId: newsletter!.id }),
+        body: JSON.stringify({ newsletterId: newsletter!.id, mode }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
@@ -149,6 +228,15 @@ export default function EditNewsletterPage() {
         text: err instanceof Error ? err.message : "Generation failed",
       });
     }
+  };
+
+  // A live send emails the real recipients AND consumes this period's stories (they won't repeat
+  // in the scheduled edition). Confirm before doing that; previews carry no such cost.
+  const sendLiveNow = () => {
+    const ok = window.confirm(
+      "Send the real edition now?\n\nThis emails all configured recipients and uses up this period's stories — they won't appear in the next scheduled send. Choose “Preview to me” instead to test without either."
+    );
+    if (ok) generateNow("live");
   };
 
   if (loading) {
@@ -281,6 +369,107 @@ export default function EditNewsletterPage() {
           </Field>
         </div>
 
+        {/* Schedule */}
+        <div className="mt-[26px]">
+          <FormSectionHeading>Schedule</FormSectionHeading>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={newsletter.schedule_enabled}
+              onChange={(e) => patch({ schedule_enabled: e.target.checked })}
+              className="h-4 w-4 accent-oxblood"
+            />
+            <span className="font-sans text-[14px] font-medium text-ink-2">
+              Send this brief automatically on a recurring schedule
+            </span>
+          </label>
+          <p className={`${helperText} mt-2`}>
+            Runs on your <strong>{newsletter.frequency}</strong> cadence and emails your
+            recipients — no button press needed. Change the cadence under Delivery above.
+          </p>
+
+          {newsletter.schedule_enabled && (
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {newsletter.frequency !== "daily" && (
+                  <Field
+                    label={
+                      newsletter.frequency === "monthly" ? "First day of month" : "Day of week"
+                    }
+                  >
+                    <select
+                      value={newsletter.send_day ?? 1}
+                      onChange={(e) => patch({ send_day: Number(e.target.value) })}
+                      className={inputClass}
+                    >
+                      {DAY_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                <Field label="Time">
+                  <select
+                    value={newsletter.send_hour}
+                    onChange={(e) => patch({ send_hour: Number(e.target.value) })}
+                    className={inputClass}
+                  >
+                    {HOUR_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              <Field label="Timezone">
+                <select
+                  value={newsletter.timezone}
+                  onChange={(e) => patch({ timezone: e.target.value })}
+                  className={inputClass}
+                >
+                  {/* Ensure the current value is selectable even if it's outside the list. */}
+                  {!TIME_ZONES.includes(newsletter.timezone) && (
+                    <option value={newsletter.timezone}>{newsletter.timezone}</option>
+                  )}
+                  {TIME_ZONES.map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              {(() => {
+                try {
+                  const sendDay =
+                    newsletter.frequency === "daily" ? null : (newsletter.send_day ?? 1);
+                  const next = computeNextSendAt(
+                    newsletter.frequency,
+                    sendDay,
+                    newsletter.send_hour,
+                    newsletter.timezone,
+                    new Date()
+                  );
+                  return (
+                    <p className={helperText}>
+                      Next send after saving:{" "}
+                      <strong>{formatNextSend(next, newsletter.timezone)}</strong>
+                    </p>
+                  );
+                } catch {
+                  return (
+                    <p className={helperText}>Pick a valid timezone to preview the next send.</p>
+                  );
+                }
+              })()}
+            </div>
+          )}
+        </div>
+
         {/* Advanced */}
         <details
           className="mt-[26px]"
@@ -344,33 +533,48 @@ export default function EditNewsletterPage() {
       </section>
 
       {/* Action bar */}
-      <div className="flex justify-between items-center mt-4 bg-white border border-hairline rounded-card px-[18px] py-3.5">
-        <button
-          type="button"
-          onClick={discardChanges}
-          disabled={saving || generating}
-          className={btnGhost}
-        >
-          Discard changes
-        </button>
-        <div className="flex gap-2.5">
+      <div className="mt-4 bg-white border border-hairline rounded-card px-[18px] py-3.5">
+        <div className="flex justify-between items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={handleSaveChanges}
+            onClick={discardChanges}
             disabled={saving || generating}
-            className={btnInkOutline}
+            className={btnGhost}
           >
-            {saving ? "Saving…" : "Save changes"}
+            Discard changes
           </button>
-          <button
-            type="button"
-            onClick={generateNow}
-            disabled={generating || saving}
-            className={btnOxblood}
-          >
-            {generating ? "Filing…" : "Generate now"}
-          </button>
+          <div className="flex gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSaveChanges}
+              disabled={saving || generating}
+              className={btnInkOutline}
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+            <button
+              type="button"
+              onClick={sendLiveNow}
+              disabled={generating || saving}
+              className={btnInkOutline}
+            >
+              Send live now
+            </button>
+            <button
+              type="button"
+              onClick={() => generateNow("preview")}
+              disabled={generating || saving}
+              className={btnOxblood}
+            >
+              {generating ? "Filing…" : "Preview to me"}
+            </button>
+          </div>
         </div>
+        <p className={`${helperText} mt-3`}>
+          <strong>Preview to me</strong> emails only you and doesn&apos;t touch this period&apos;s
+          stories — safe for testing. <strong>Send live now</strong> emails your recipients and
+          consumes those stories.
+        </p>
       </div>
 
       {runs.length > 0 && (

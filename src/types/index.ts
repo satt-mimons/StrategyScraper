@@ -9,6 +9,22 @@ export type RunStatus = "queued" | "running" | "done" | "failed";
 
 export type PipelineStage = "research" | "filter" | "write" | "design" | "deliver";
 
+/**
+ * How a run delivers in the final stage.
+ * - "live": email the newsletter's configured recipients and record the story URLs to the
+ *   global sent_urls pool (so future runs skip them). Used by scheduled sends and explicit
+ *   "send live" requests.
+ * - "preview": email ONLY the requesting user and DO NOT record sent URLs — a test run must
+ *   never suppress stories from the next real edition.
+ */
+export type RunMode = "live" | "preview";
+
+export interface RunOptions {
+  mode: RunMode;
+  /** Required for mode "preview": the single address the test edition is emailed to. */
+  previewRecipient?: string;
+}
+
 export interface BrandOverrides {
   primary_color?: string;
   accent_color?: string;
@@ -59,6 +75,13 @@ export interface NewsletterConfig {
   primary_color: string;
   accent_color: string;
   logo_url: string;
+  // Scheduled sending (migration 010). next_send_at is computed via src/lib/schedule.ts.
+  schedule_enabled: boolean;
+  send_day: number | null; // 0=Sunday..6=Saturday; null for `daily` frequency
+  send_hour: number; // 0-23, local to `timezone`
+  timezone: string; // IANA name, e.g. "America/New_York"
+  next_send_at: string | null; // UTC instant the cron worker should next fire
+  last_sent_at: string | null; // UTC instant a scheduled run last fired
   created_at: string;
   updated_at: string;
 }
